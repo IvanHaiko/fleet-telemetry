@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip(
+    "pyulog", reason="Install the pinned ulog extra for recording tests."
+)
+
 from runtime.flight_analytics.f01 import PROFILE, VEHICLE, project_state
 from runtime.flight_analytics.recording_store import project
 from telemetry.conversion_contract import json_line

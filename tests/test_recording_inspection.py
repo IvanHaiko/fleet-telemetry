@@ -5,6 +5,10 @@ from typing import cast
 
 import pytest
 
+pytest.importorskip(
+    "pyulog", reason="Install the pinned ulog extra for recording tests."
+)
+
 from runtime.flight_analytics.recording import combine, connect
 from runtime.flight_analytics.state import project
 from runtime.flight_analytics.state_time import Gap

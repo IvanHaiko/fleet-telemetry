@@ -3,6 +3,7 @@
 import hashlib
 import json
 import runpy
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,11 @@ from runtime.flight_analytics.state import (
 from ulog_integrity import F09_SOURCE_ID
 
 ROOT = Path(__file__).resolve().parents[1]
+
+needs_ulog = pytest.mark.skipif(
+    find_spec("pyulog") is None,
+    reason="Install the pinned ulog extra for recording tests.",
+)
 
 
 def _rows() -> list[dict[str, object]]:
@@ -106,6 +112,7 @@ def test_record_counts_do_not_turn_into_duration_or_inferred_flight() -> None:
     assert "flight_duration" not in json.dumps(result)
 
 
+@needs_ulog
 def test_artifact_tamper_and_existing_destination_refuse(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="output_exists"):
         prepare(tmp_path / "missing.ulg", tmp_path)

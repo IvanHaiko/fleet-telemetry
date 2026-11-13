@@ -2,6 +2,7 @@
 
 import json
 import runpy
+from importlib.util import find_spec
 from pathlib import Path
 from typing import cast
 
@@ -9,7 +10,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+needs_ulog = pytest.mark.skipif(
+    find_spec("pyulog") is None,
+    reason="Install the pinned ulog extra for recording tests.",
+)
 
+
+@needs_ulog
 def test_gps_utc_keeps_integer_microseconds() -> None:
     namespace = runpy.run_path(str(ROOT / "scripts/prepare-f09-gps.py"))
     convert = namespace["gps_utc_text"]
@@ -17,6 +24,7 @@ def test_gps_utc_keeps_integer_microseconds() -> None:
     assert convert(1_755_776_400_999_999).endswith(".999999Z")
 
 
+@needs_ulog
 def test_existing_research_output_refuses_before_reading_input(tmp_path: Path) -> None:
     namespace = runpy.run_path(str(ROOT / "scripts/prepare-f09-gps.py"))
     prepare = namespace["prepare"]

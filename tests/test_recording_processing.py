@@ -10,6 +10,10 @@ from typing import BinaryIO, cast
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip(
+    "pyulog", reason="Install the pinned ulog extra for recording tests."
+)
 from recording_stream_support import battery, gps, state
 
 from runtime.flight_analytics import stream_reference
