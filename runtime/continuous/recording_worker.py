@@ -56,23 +56,25 @@ def serve(config: Document, root: Path) -> None:
     topic = string_value(source["topic"])
     reader = storage(config, "reader")
     sql = sql_client(config)
-    database = string_value(object_value(config["sql_admin"])["database"])
     stopped, deadline = lifetime(config)
     consumer = kafka.consumer(string_value(config["run_id"]) + "-serve")
     path = root / "serving-cursor.json"
     state = (
         json_object(read_bounded(path, 65536))
         if path.exists()
-        else {"next": dict.fromkeys(map(str, range(18)), 0)}
+        else {"next": dict.fromkeys(map(str, range(kafka.partitions)), 0)}
     )
     next_offsets = object_value(state["next"])
-    require(set(next_offsets) == set(map(str, range(18))), "recording_serving_cursor")
+    require(
+        set(next_offsets) == set(map(str, range(kafka.partitions))),
+        "recording_serving_cursor",
+    )
     consumer.assign(
         kafka.positions(topic, {p: integer_value(v) for p, v in next_offsets.items()})
     )
     outputs = root / "outputs"
     outputs.mkdir(exist_ok=True)
-    admitted: set[str] = set()
+    logical = 0
     last = 0.0
     gate: VerifiedInputs | None = None
     pending: Document | None = None
@@ -93,7 +95,7 @@ def serve(config: Document, root: Path) -> None:
                 partition = integer_value(pending["partition"])
                 offset = integer_value(pending["offset"])
                 require(
-                    0 <= partition < 18
+                    0 <= partition < kafka.partitions
                     and offset == next_offsets[str(partition)]
                     and offset < MAX_DELIVERIES * 2,
                     "recording_output_offset",
@@ -110,23 +112,17 @@ def serve(config: Document, root: Path) -> None:
                     sql.write_facts([output])
                     next_offsets[str(partition)] = offset + 1
                     durable_cursor(path, state)
-                    admitted.add(
-                        string_value(object_value(output["fact"])["measurement_id"])
-                    )
                     pending = None
             now = time.monotonic()
             if now - last >= 0.5:
-                known = sql.read(
-                    f"SELECT event_id FROM {database}.measurements LIMIT 4097"
-                )
-                require(len(known) <= 4096, "recording_sql_count_bound")
-                admitted = {string_value(row["event_id"]) for row in known}
-                sql.progress("running", len(gate.rows), len(admitted), len(gate.facts))
+                # SQL, not this process's memory, is authoritative after restarts.
+                logical = sql.logical_count()
+                sql.progress("running", len(gate.rows), logical, len(gate.facts))
                 durable_cursor(
                     root / "serving-status.json",
                     {
                         "input_archived": len(gate.rows),
-                        "logical_facts": len(admitted),
+                        "logical_facts": logical,
                         "outputs_next": next_offsets,
                         "written_ms": time.time_ns() // 1000000,
                     },
@@ -141,27 +137,27 @@ def serve(config: Document, root: Path) -> None:
             if (
                 producer.get("status") == "completed"
                 and len(gate.rows) == len(gate.wires)
-                and admitted == set(gate.facts)
                 and pending is None
+                and sql.logical_count() == len(gate.facts)
+                and sql.logical_ids() == set(gate.facts)
             ):
+                logical = len(gate.facts)
                 highs = {
                     str(p.partition): consumer.get_watermark_offsets(
                         p, timeout=5, cached=False
                     )[1]
                     for p in kafka.positions(
-                        topic, dict.fromkeys(map(str, range(18)), 0)
+                        topic, dict.fromkeys(map(str, range(kafka.partitions)), 0)
                     )
                 }
                 if highs == next_offsets:
-                    sql.progress(
-                        "completed", len(gate.rows), len(admitted), len(gate.facts)
-                    )
+                    sql.progress("completed", len(gate.rows), logical, len(gate.facts))
                     immutable(
                         root / "serving-complete.json",
                         json_line(
                             {
                                 "input_deliveries": len(gate.rows),
-                                "logical_facts": len(admitted),
+                                "logical_facts": logical,
                                 "output_offsets": next_offsets,
                                 "status": "completed",
                             }
@@ -171,7 +167,7 @@ def serve(config: Document, root: Path) -> None:
         sql.progress(
             "stopped" if stopped() else "failed",
             len(gate.rows) if gate else 0,
-            len(admitted),
+            logical,
             len(gate.facts) if gate else 0,
         )
         require(stopped(), "recording_serving_deadline")

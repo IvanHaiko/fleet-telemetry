@@ -1,0 +1,17 @@
+apiVersion: 1
+datasources:
+  - name: F09 recording ClickHouse
+    uid: mvp-f09-clickhouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    editable: false
+    jsonData:
+      # ClickHouse shares the storage network namespace, reached by its alias.
+      host: storage
+      port: 8123
+      protocol: http
+      username: recording_grafana
+      dialTimeout: 5
+      queryTimeout: 15
+    secureJsonData:
+      password: $RECORDING_GRAFANA_READER_PASSWORD

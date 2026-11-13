@@ -109,3 +109,31 @@ observation coordinates, freshness and selected recovery failures must be tested
 there. The offline input-event hash/comparison does not provide those guarantees.
 Rollback stops using the new commands and retains inputs/outputs; no persistent
 dataset migration is involved.
+
+## Complete-flight preparation, 2026-11-13
+
+The same commands cover the whole recording. The interval `[0,2436000000)`
+begins before the first state observation and ends after the last GPS sample,
+so the context needs no predecessors. The output parent must exist; the output
+directory itself must not:
+
+```powershell
+.venv/Scripts/python.exe -m runtime.flight_analytics.stream_prepare --prepared .local-discovery/gold-grafana-20261104/connected-recording-v1 --source .local-discovery/real-ulog-20261027-001/log_67_2025-8-21-14-24-48.ulg --output .local-discovery/f09-full-20261113-001/bundle --run-id f09-full-20261113-001 --start-us 0 --end-us 2436000000
+.venv/Scripts/python.exe -m runtime.flight_analytics.stream_reference --bundle .local-discovery/f09-full-20261113-001/bundle --output .local-discovery/f09-full-20261113-001/reference --max-age-us 1000000
+```
+
+| Stream | Selected events |
+| --- | ---: |
+| GPS | 21,054 |
+| Battery (admitted) | 11,723 |
+| Land detector | 2,337 |
+| Commander | 4,644 |
+| Total | 39,758 |
+
+On the Windows development host, each command ran in about 47 seconds. The
+bundle's `events.jsonl` is 36,451,400 bytes and the reference `facts.jsonl` is
+29,632,734 bytes, both below the 64-MiB output bound. All 21,054 facts equal
+the retained historical inspection by identity and complete content.
+[ADR-0050](../adr/0050-integrated-f09-runtime.md#full-recording-bounds-2026-11-13)
+records the incremental-runtime comparison and the resulting runtime bounds.
+The outputs stay in restricted ignored storage.

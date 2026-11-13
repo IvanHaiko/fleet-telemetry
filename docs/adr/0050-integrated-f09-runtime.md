@@ -76,3 +76,45 @@ to the reported failure count was not independently established. Actual checkpoi
 restore and host failure were not demonstrated. The
 4,096-delivery limit excludes the complete flight. Original source and run data
 remain local; their retention is not an off-host backup.
+
+## Full-recording bounds, 2026-11-13
+
+Roadmap step 2 needs the complete flight, which the 4,096-delivery guard
+excluded. The offline preparation for `[0,2436000000)` selects 39,758 events:
+21,054 GPS, 11,723 admitted battery and 6,981 state observations. The seven
+battery value rejections stay in the preparation's rejection evidence. The
+reference yields 21,054 facts whose identities and complete inspections equal
+the retained historical result, with the same association status counts. The
+incremental runtime reproduces those facts over 39,760 deliveries, including
+two declared repeats. Its final checkpoint snapshot is 6,405,224 bytes, and
+restoring from it preserves the delivery count. Every output is at most 1,680
+bytes and passes the typed SQL projection.
+
+The selected bounds now follow that measurement. The delivery, signature and
+output-offset caps equal the existing 50,000-event preparation cap. The worker
+lifetime cap is 3,600 seconds. The local control-file read cap is 64 MiB,
+because the complete reference is 29,632,734 bytes. The 16-MiB snapshot cap is
+unchanged.
+
+Archive objects keep their 16-MiB cap, and SeaweedFS also caps files at 16 MB.
+The reference is therefore archived as complete-line parts of at most 8 MiB,
+written before an index object named `reference-parts.json`. The complete F09
+reference becomes four parts. Serving rebuilds it from parts read back by digest,
+checks the configured whole-reference digest and length, and then requires the
+index to equal the deterministic split of the rebuilt bytes.
+
+Dashboards read a typed `points` view, which excludes the three raw JSON
+columns. Each chart and the route show the first recorded sample in each
+one-second native bucket. A NULL first sample stays Unknown, and the complete
+flight needs about 2,400 rows, under the 4,096-row display cap.
+Serving no longer reads identities through the DISTINCT view, which scans every
+raw JSON column. It counts distinct identities from the `facts` identity
+column, and completion compares the complete identity set read in ordered
+4,096-row pages.
+
+This is offline evidence. No broker, Flink, archive, SQL or dashboard ran for the
+complete flight. The bucketed SQL, the `points` view's scan size and the
+multipart archive uploads have only static and fake-boundary checks; they need
+actual ClickHouse, Grafana and SeaweedFS runs. The Kafka client, the connection
+parser and the Flink job still require the six-broker, eighteen-partition
+mutual-TLS topology.

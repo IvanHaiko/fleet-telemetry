@@ -53,7 +53,8 @@ def validate_config(config: Document) -> None:
         or config.get("job_file") != f"/state/{config['run_id']}-job.json"
     ):
         raise ValueError("recording_job_state_paths")
-    # This profile uses the existing mutual-TLS six-broker connection only.
+    # An explicit topology is required: the two-host mutual-TLS lab or the
+    # private single-broker Compose network. The legacy implicit route is refused.
     from telemetry.continuous_connection import parse_connection
 
     connection = parse_connection(config.get("kafka_connection"))

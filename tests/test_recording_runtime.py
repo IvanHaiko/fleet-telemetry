@@ -302,7 +302,7 @@ def test_output_preserves_fact_and_transport_identity_without_aliases() -> None:
     [
         ("profile", "unsupported"),
         ("input_offset", True),
-        ("input_offset", 4096),
+        ("input_offset", MAX_EVENTS),
         ("context_sha256", "A" * 64),
         ("input_source", {**SOURCE, "partition": True}),
         ("input_source", {**SOURCE, "partition": 1}),

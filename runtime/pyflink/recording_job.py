@@ -20,7 +20,11 @@ from pyflink.datastream.connectors.kafka import (
     KafkaSink,
 )
 from pyflink.table import StreamTableEnvironment
-from telemetry.continuous_connection import flink_properties, source_options
+from telemetry.continuous_connection import (
+    flink_properties,
+    parse_connection,
+    source_options,
+)
 from telemetry.conversion_contract import json_line, json_object
 from telemetry.recording_runtime import MAX_SNAPSHOT_BYTES
 
@@ -82,7 +86,12 @@ def run(path: Path) -> None:
     )
     env.add_python_file(str(Path(__file__).with_name("recording_operator.py")))
     tables = StreamTableEnvironment.create(env)
-    offsets = ";".join(f"partition:{partition},offset:0" for partition in range(18))
+    connection = parse_connection(config["kafka_connection"])
+    if connection is None:
+        raise ValueError("recording_job_connection")
+    offsets = ";".join(
+        f"partition:{partition},offset:0" for partition in range(connection.partitions)
+    )
     tables.execute_sql(f"""
       CREATE TEMPORARY TABLE recording_input (
         record_key BYTES, payload BYTES,

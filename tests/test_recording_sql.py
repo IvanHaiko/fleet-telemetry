@@ -12,6 +12,7 @@ from recording_stream_support import gps
 from runtime.clickhouse.transport import HttpConfig
 from runtime.continuous import recording_sql
 from telemetry.conversion_contract import json_line, json_object, object_value
+from telemetry.recording_output import MAX_EVENTS
 from telemetry.recording_stream import event_bytes, make_event
 from ulog_integrity import F09_SOURCE_ID
 
@@ -117,7 +118,16 @@ class Boundary:
         assert parameters is not None and parameters["readonly"] == "1"
         if self.reply is not None:
             return self.reply
-        if ".progress " in sql:
+        if "uniqExact(event_id)" in sql:
+            rows = [{"n": len({row["event_id"] for row in self.facts})}]
+        elif sql.startswith("SELECT DISTINCT event_id "):
+            after = re.search(r"event_id > '([0-9a-f]*)'", sql)
+            limit = re.search(r"LIMIT ([0-9]+) FORMAT ", sql)
+            assert after is not None and limit is not None
+            page = sorted({str(row["event_id"]) for row in self.facts})
+            later = [identity for identity in page if identity > after[1]]
+            rows = [{"event_id": identity} for identity in later[: int(limit[1])]]
+        elif ".progress " in sql:
             stamp = int(sql.split("written_ms=")[1].split()[0])
             rows = [row for row in self.progress if row["written_ms"] == stamp]
         elif "SELECT DISTINCT *" in sql:
@@ -161,18 +171,20 @@ def test_fresh_schema_and_database_scope(
     sql, boundary = store
     sql.initialize()
     statements = [call[1] for call in boundary.calls]
-    assert len(statements) == 4
+    assert len(statements) == 5
     assert statements[0] == "CREATE DATABASE authored_recording"
     assert "ENGINE=MergeTree" in statements[1]
     assert "SELECT DISTINCT" in statements[3]
     assert "output_json" in statements[3] and "inspection_json" in statements[3]
+    assert statements[4].startswith("CREATE VIEW authored_recording.points AS ")
+    assert "_json" not in statements[4] and "voltage_v" in statements[4]
     assert all(call[0] == sql.admin and call[3] for call in boundary.calls)
     assert not any(
         "IF NOT EXISTS" in statement or "DROP" in statement for statement in statements
     )
     with pytest.raises(ValueError, match="scope_exists"):
         sql.initialize()
-    assert len(boundary.calls) == 5
+    assert len(boundary.calls) == 6
     with pytest.raises(ValueError, match="recording_sql_database"):
         recording_sql.RecordingSQL(
             sql.admin, HttpConfig(8123, "different", "reader", "password")
@@ -401,7 +413,7 @@ def test_batch_and_select_limits_and_pipeline_progress(
     for values in (
         ("live", 0, 0, 2),
         ("running", True, 0, 2),
-        ("running", 4097, 0, 2),
+        ("running", MAX_EVENTS + 1, 0, 2),
         ("completed", 8, 1, 2),
         ("running", 1, 2, 2),
     ):
@@ -419,3 +431,21 @@ def test_batch_and_select_limits_and_pipeline_progress(
         boundary.reply = reply
         with pytest.raises(ValueError, match="recording_sql_read_bound"):
             sql.read("SELECT count() AS n FROM authored_recording.measurements")
+
+
+def test_logical_identity_readback_spans_pages_and_ignores_retries(
+    store: tuple[recording_sql.RecordingSQL, Boundary],
+) -> None:
+    """A complete flight exceeds one 4,096-row result; reconciliation must page."""
+    sql, boundary = store
+    identities = [f"{i:064x}" for i in range(4096 + 5)]
+    facts: list[Document] = [{"event_id": identity} for identity in identities]
+    boundary.facts = facts + facts[:3]  # Physical retries keep identical rows.
+    assert sql.logical_count() == 4101
+    assert sql.logical_ids() == set(identities)
+    pages = [call[1] for call in boundary.calls if "DISTINCT event_id" in call[1]]
+    assert len(pages) == 2
+    assert all(" FROM authored_recording.facts " in page for page in pages)
+    boundary.reply = b'{"event_id":"not-a-digest"}\n'
+    with pytest.raises(ValueError, match="recording_sql_digest"):
+        sql.logical_ids()

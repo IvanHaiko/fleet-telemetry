@@ -1,0 +1,252 @@
+# Single-machine F09 recording profile (ADR-0052): one Kafka broker, the pinned
+# PyFlink runtime, SeaweedFS archive, ClickHouse serving, Grafana and workers.
+#
+# Storage clients accept only 127.0.0.1 endpoints. ClickHouse and every worker
+# therefore join the archive container's network namespace, so S3 and SQL are
+# genuinely loopback. Only Grafana and the Flink UI publish loopback host ports.
+# Prepare secrets first with runtime/recording/prepare.py, then pass its env file.
+name: fleet-recording-local
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 5m, max-file: "2"}
+
+x-flink: &flink
+  <<: *hardened
+  image: fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956
+  platform: linux/amd64
+  pull_policy: never
+  user: "10001:10001"
+  environment:
+    PYTHONPATH: /workspace:/workspace/runtime/pyflink:/workspace/scripts
+    OPENBLAS_NUM_THREADS: "1"
+    OMP_NUM_THREADS: "1"
+  volumes:
+    - state:/state
+    - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+  tmpfs: ["/tmp:rw,nosuid,size=256m"]
+  stop_grace_period: 30s
+
+x-worker: &worker
+  <<: *hardened
+  image: fleet-telemetry/recording-worker:0.1.0
+  build: {context: ../runtime/recording}
+  profiles: [run]
+  network_mode: service:archive
+  depends_on: [archive, serving, kafka]
+  volumes:
+    - evidence:/evidence
+    - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+    - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}", target: /private, read_only: true, bind: {create_host_path: false}}
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+  mem_limit: 512m
+  cpus: 1
+  pids_limit: 128
+  restart: "no"
+
+services:
+  kafka:
+    <<: *hardened
+    image: apache/kafka:4.4.0@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f
+    hostname: kafka
+    pull_policy: never
+    # The official image renders its configuration at startup.
+    read_only: false
+    environment:
+      CLUSTER_ID: ZmxlZXQtcmVjb3JkaW5nMQ
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes: [kafka-data:/var/lib/kafka/data]
+    tmpfs: ["/tmp:rw,nosuid,size=128m"]
+    mem_limit: 1g
+    cpus: 1
+    healthcheck:
+      test: [CMD, /opt/kafka/bin/kafka-topics.sh, --bootstrap-server, kafka:9092, --list]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  jobmanager:
+    <<: *flink
+    command: [jobmanager]
+    ports: ["127.0.0.1:18082:8081"]
+    mem_limit: 1536m
+    cpus: 1
+    pids_limit: 512
+
+  taskmanager:
+    <<: *flink
+    command: [taskmanager]
+    depends_on: [jobmanager]
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 1024
+
+  submit:
+    <<: *flink
+    profiles: [run]
+    command: [submit, -py, /workspace/runtime/pyflink/recording_job.py, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/prepare.py first}/config/job.json"]
+    depends_on: [taskmanager, kafka]
+    volumes:
+      - state:/state
+      - evidence:/evidence:ro
+      - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 1536m
+    cpus: 1
+    pids_limit: 512
+    restart: "no"
+
+  archive:
+    <<: *hardened
+    image: fleet-telemetry/seaweed-m4:4.48-local1@sha256:460f0162e5fbcfeef1571308be4e5ddb457cb74f35e50e50434902b4549c4097
+    pull_policy: never
+    user: "10001:10001"
+    environment: {GOMEMLIMIT: 512MiB}
+    command:
+      - server
+      - -dir=/data
+      - -ip=127.0.0.1
+      - -ip.bind=127.0.0.1
+      - -master.peers=127.0.0.1:9333
+      - -master.telemetry=false
+      - -master.volumeSizeLimitMB=64
+      - -master.volumePreallocate=false
+      - -master.vacuumDeleteEmptyAfterSeconds=0
+      - -volume.max=128
+      - -volume.minFreeSpace=1GiB
+      - -volume.fileSizeLimitMB=16
+      - -filer=true
+      - -filer.maxMB=16
+      - -filer.exposeDirectoryData=false
+      - -s3=true
+      # Loopback only: ClickHouse and workers share this network namespace.
+      - -s3.ip.bind=127.0.0.1
+      - -s3.config=/run/secrets/s3.json
+      - -s3.iam=false
+      - -s3.autoCreateBucket=false
+      - -s3.allowDeleteBucketNotEmpty=false
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -s3.concurrentUploadLimitMB=32
+      - -s3.readerCacheSizeMB=32
+      - -webdav=false
+      - -sftp=false
+      - -iam=false
+      - -mq.broker=false
+      - -mq.agent=false
+      - -metricsPort=0
+    networks:
+      default:
+        aliases: [storage]
+    volumes:
+      - archive-data:/data
+      - {type: bind, source: ../runtime/s3/archive-master.toml, target: /etc/seaweedfs/master.toml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/s3.json", target: /run/secrets/s3.json, read_only: true, bind: {create_host_path: false}}
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001"]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    stop_grace_period: 20s
+
+  serving:
+    <<: *hardened
+    image: clickhouse/clickhouse-server:26.8.34.13@sha256:ed334fbfae35c4f9fa328534821280b59d1c4677df8f3cf0e950cf7501a25bde
+    pull_policy: never
+    user: "101:101"
+    network_mode: service:archive
+    depends_on: [archive]
+    environment:
+      CLICKHOUSE_USER: bootstrap
+      CLICKHOUSE_PASSWORD: ${RECORDING_CH_BOOTSTRAP_PASSWORD:?Run runtime/recording/prepare.py first}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - serving-data:/var/lib/clickhouse
+      - {type: bind, source: ../runtime/clickhouse/limits.xml, target: /etc/clickhouse-server/config.d/limits.xml, read_only: true, bind: {create_host_path: false}}
+    tmpfs:
+      - /var/log/clickhouse-server:rw,noexec,nosuid,size=32m,uid=101,gid=101
+      - /etc/clickhouse-server/users.d:rw,noexec,nosuid,size=1m,uid=101,gid=101
+      - /tmp:rw,noexec,nosuid,size=64m,uid=101,gid=101
+    mem_limit: 2g
+    cpus: 1
+    pids_limit: 256
+    stop_grace_period: 30s
+
+  grafana:
+    image: grafana/grafana:13.2.4@sha256:7b22f3edf947329d75eba7a62d9f6ea1ac1e786736813ef7a98cfb275a52e49b
+    pull_policy: never
+    user: "472:472"
+    depends_on: [serving]
+    environment:
+      GF_SECURITY_ADMIN_USER: recording_admin
+      GF_SECURITY_ADMIN_PASSWORD: ${RECORDING_GRAFANA_PASSWORD:?Run runtime/recording/prepare.py first}
+      RECORDING_GRAFANA_READER_PASSWORD: ${RECORDING_GRAFANA_READER_PASSWORD:?Run runtime/recording/prepare.py first}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SERVER_ROOT_URL: http://127.0.0.1:13003/
+    ports: ["127.0.0.1:13003:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - {type: bind, source: "${RECORDING_GRAFANA_PLUGIN:?Run runtime/recording/prepare.py first}", target: /var/lib/grafana/plugins/grafana-clickhouse-datasource, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/grafana/datasources.yml, target: /etc/grafana/provisioning/datasources/recording.yml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/grafana/dashboards.yml, target: /etc/grafana/provisioning/dashboards/recording.yml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/dashboards", target: /var/lib/grafana/dashboards, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+
+  initialize:
+    <<: *worker
+    command: [runtime.continuous.recording_initialize, --private, /private, --evidence, /evidence]
+
+  archive-worker:
+    <<: *worker
+    command: [runtime.continuous.recording_worker, archive, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/prepare.py first}/config/archive.json"]
+
+  serving-worker:
+    <<: *worker
+    command: [runtime.continuous.recording_worker, serve, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/prepare.py first}/config/serve.json"]
+
+  publisher:
+    <<: *worker
+    command: [runtime.continuous.recording_worker, publish, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/prepare.py first}/config/publish.json"]
+
+volumes:
+  kafka-data:
+  state:
+  archive-data:
+  serving-data:
+  grafana-data:
+  evidence:
+
+networks:
+  default:
+    ipam:
+      config: [{subnet: "${RECORDING_SUBNET:-10.253.240.16/28}"}]

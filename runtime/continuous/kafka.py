@@ -1,4 +1,4 @@
-"""Pinned native Kafka access for the fixed distributed continuous profile."""
+"""Pinned native Kafka access for the distributed or single-broker profile."""
 
 from __future__ import annotations
 
@@ -80,6 +80,10 @@ class Kafka:
         self.endpoints = (
             frozenset(self.connection.endpoints) if self.connection else LOCAL_ENDPOINTS
         )
+        # The legacy local route is the same six-broker, eighteen-partition shape.
+        self.brokers = self.connection.brokers if self.connection else 6
+        self.partitions = self.connection.partitions if self.connection else 18
+        self.replication = self.connection.replication_factor if self.connection else 2
         seeds = bootstrap.split(",")
         if (
             not seeds
@@ -103,7 +107,7 @@ class Kafka:
             "ClusterDescription",
             self.admin.describe_cluster(request_timeout=5).result(6),
         )
-        if cluster.cluster_id != self.cluster_id or len(cluster.nodes) != 6:
+        if cluster.cluster_id != self.cluster_id or len(cluster.nodes) != self.brokers:
             raise ValueError("continuous_cluster_identity")
         endpoints = {f"{node.host}:{node.port}" for node in cluster.nodes}
         if endpoints != self.endpoints:
@@ -114,7 +118,7 @@ class Kafka:
                 self.sdk.TopicCollection([topic]), request_timeout=5
             )[topic].result(6),
         )
-        if len(info.partitions) != 18:
+        if len(info.partitions) != self.partitions:
             raise ValueError("continuous_partition_count")
         return {
             "cluster_id": cluster.cluster_id,
@@ -125,13 +129,13 @@ class Kafka:
     def create(self, topic: str) -> dict[str, object]:
         new = self.module.NewTopic(
             topic,
-            num_partitions=18,
-            replication_factor=2,
+            num_partitions=self.partitions,
+            replication_factor=self.replication,
             config={
                 "cleanup.policy": "delete",
                 "retention.ms": "-1",
                 "retention.bytes": "-1",
-                "min.insync.replicas": "2",
+                "min.insync.replicas": str(self.replication),
             },
         )
         self.admin.create_topics([new], request_timeout=5)[topic].result(6)

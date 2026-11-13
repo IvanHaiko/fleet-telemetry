@@ -1,4 +1,4 @@
-"""Explicit two-host Kafka endpoints and separate native/JVM TLS properties."""
+"""Explicit Kafka topologies: the two-host TLS lab or one private broker."""
 
 from __future__ import annotations
 
@@ -31,9 +31,36 @@ def _path(value: object) -> str:
 
 
 @dataclass(frozen=True)
+class SingleHostConnection:
+    """One broker reached by its private Compose network name, without TLS.
+
+    Plaintext is admitted only because the broker publishes no host port and
+    every client shares one internal Docker network on one machine.
+    """
+
+    endpoint: str
+    partitions: int
+    brokers = 1
+    replication_factor = 1
+
+    @property
+    def endpoints(self) -> tuple[str, ...]:
+        return (self.endpoint,)
+
+    def native_properties(self) -> dict[str, str]:
+        return {}
+
+    def jvm_properties(self) -> dict[str, str]:
+        return {}
+
+
+@dataclass(frozen=True)
 class Connection:
     """Validated lab topology; contains paths, never key bytes or passwords."""
 
+    brokers = 6
+    partitions = 18
+    replication_factor = 2
     endpoints: tuple[str, ...]
     ca_file: str
     certificate_file: str
@@ -76,10 +103,30 @@ class Connection:
         }
 
 
-def parse_connection(value: object) -> Connection | None:
+def _single_host(value: dict[str, object]) -> SingleHostConnection:
+    config = _object(value, {"format_version", "endpoint", "partitions"})
+    endpoint = config["endpoint"]
+    if (
+        not isinstance(endpoint, str)
+        or re.fullmatch(r"[a-z][a-z0-9-]{0,62}:[0-9]{1,5}", endpoint) is None
+        or not 1024 <= int(endpoint.split(":")[1]) <= 65535
+    ):
+        raise ValueError("continuous_connection_endpoint")
+    partitions = config["partitions"]
+    if type(partitions) is not int or not 1 <= partitions <= 64:
+        raise ValueError("continuous_connection_partitions")
+    return SingleHostConnection(endpoint, partitions)
+
+
+def parse_connection(value: object) -> Connection | SingleHostConnection | None:
     """Keep absent settings local; reject incomplete or downgraded split mode."""
     if value is None:
         return None
+    if (
+        isinstance(value, dict)
+        and value.get("format_version") == "single-host-kafka-v1"
+    ):
+        return _single_host(cast(dict[str, object], value))
     config = _object(value, {"format_version", "endpoints", "native_tls", "flink_tls"})
     if config["format_version"] != "two-host-kafka-client-v1":
         raise ValueError("continuous_connection_version")

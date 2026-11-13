@@ -70,6 +70,17 @@ Work in this order:
    These are different streams, not simultaneous snapshots or interchangeable
    row counts. Any intentional selection must declare its exact interval and
    coverage; retained originals still include unprocessed topics.
+   *Status 2026-11-13:* the offline part is done. The complete-flight preparation,
+   reference and incremental runtime agree on 21,054 facts over 39,760
+   deliveries, and the runtime bounds are raised to match. The reference is
+   archived in parts under the 16-MiB object cap, and the dashboard reads
+   one-second buckets from a typed view. See
+   [ADR-0050](adr/0050-integrated-f09-runtime.md#full-recording-bounds-2026-11-13).
+   The maintainer selected the single-machine placement.
+   [ADR-0052](adr/0052-single-machine-recording-profile.md) prepares that profile,
+   and its configuration is checked offline. Next is the actual 1x run from the
+   [run guide](guides/f09-single-machine-run.md). Building the worker image,
+   starting services and the run need separate authorization.
 3. **Prove the selected retry/recovery boundaries.** Reuse existing mechanisms
    and failure evidence. Demonstrate a serving interruption after SQL ACK but
    before cursor publication, pause/resume, duplicate-safe results and an isolated

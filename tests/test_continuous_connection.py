@@ -11,6 +11,7 @@ from runtime.continuous import kafka as module
 from telemetry.continuous_connection import (
     LOCAL_ENDPOINTS,
     LOCAL_FLINK_BOOTSTRAP,
+    Connection,
     flink_properties,
     parse_connection,
     source_options,
@@ -40,7 +41,7 @@ def connection() -> dict[str, object]:
 def test_native_and_jvm_preserve_tls_but_use_their_own_material() -> None:
     config = connection()
     parsed = parse_connection(config)
-    assert parsed is not None
+    assert isinstance(parsed, Connection)
     native = parsed.native_properties()
     jvm = flink_properties({"kafka_connection": config})
     assert native["security.protocol"] == jvm["security.protocol"] == "SSL"
@@ -143,3 +144,77 @@ def test_all_native_clients_share_tls_and_metadata_guard(
     assert legacy.client_properties() == {"bootstrap.servers": legacy.bootstrap}
     with pytest.raises(ValueError, match="continuous_bootstrap_endpoints"):
         module.Kafka(",".join(endpoints), "cluster")
+
+
+def single_host() -> dict[str, object]:
+    return {
+        "format_version": "single-host-kafka-v1",
+        "endpoint": "kafka:9092",
+        "partitions": 12,
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("endpoint", "127.0.0.1:9092"),
+        ("endpoint", "kafka:80"),
+        ("endpoint", "Kafka:9092"),
+        ("partitions", 0),
+        ("partitions", True),
+        ("extra", "x"),
+    ],
+)
+def test_single_host_connection_refuses_other_shapes(field: str, value: object) -> None:
+    config = single_host()
+    config[field] = value
+    with pytest.raises(ValueError):
+        parse_connection(config)
+
+
+def test_single_broker_topology_is_enforced_without_tls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One broker and twelve partitions replace, not relax, the six-broker checks."""
+    parsed = parse_connection(single_host())
+    assert parsed is not None and (parsed.brokers, parsed.partitions) == (1, 12)
+    assert flink_properties({"kafka_connection": single_host()}) == {
+        "bootstrap.servers": "kafka:9092"
+    }
+    sdk, admin_module = MagicMock(), MagicMock()
+    admin = admin_module.AdminClient.return_value
+    cluster = SimpleNamespace(
+        cluster_id="cluster", nodes=[SimpleNamespace(host="kafka", port=9092)]
+    )
+    admin.describe_cluster.return_value.result.return_value = cluster
+    description = SimpleNamespace(topic_id="topic-id", partitions=list(range(12)))
+    admin.describe_topics.return_value = {"topic": MagicMock()}
+    admin.describe_topics.return_value["topic"].result.return_value = description
+    monkeypatch.setattr(module, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(module, "require_uuid_boundary", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "importlib",
+        SimpleNamespace(
+            import_module=lambda name: (
+                sdk if name == "confluent_kafka" else admin_module
+            )
+        ),
+    )
+    client = module.Kafka("kafka:9092", "cluster", single_host())
+    assert client.client_properties() == {"bootstrap.servers": "kafka:9092"}
+    assert client.describe("topic")["topic_id"] == "topic-id"
+    client.create("topic")
+    new_topic = admin_module.NewTopic.call_args
+    assert new_topic.kwargs["num_partitions"] == 12
+    assert new_topic.kwargs["replication_factor"] == 1
+    assert new_topic.kwargs["config"]["min.insync.replicas"] == "1"
+    description.partitions = list(range(18))
+    with pytest.raises(ValueError, match="continuous_partition_count"):
+        client.describe("topic")
+    description.partitions = list(range(12))
+    cluster.nodes.append(SimpleNamespace(host="kafka-2", port=9092))
+    with pytest.raises(ValueError, match="continuous_cluster_identity"):
+        client.describe("topic")
+    with pytest.raises(ValueError, match="continuous_bootstrap_endpoints"):
+        module.Kafka("kafka-2:9092", "cluster", single_host())

@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: f09-recording
+    orgId: 1
+    folder: F09 recording
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      # Rendered per run by runtime/recording/prepare.py with its own database.
+      path: /var/lib/grafana/dashboards

@@ -23,6 +23,7 @@ from telemetry.conversion_contract import (
     object_value,
     require_keys,
 )
+from telemetry.recording_output import MAX_EVENTS
 from telemetry.recording_stream import event_bytes, make_event
 from ulog_integrity import F09_SOURCE_ID
 
@@ -194,7 +195,7 @@ def _project(output: Document) -> Document:
     if topic in {".", ".."}:
         raise ValueError("recording_sql_identifier")
     partition = _integer(source["partition"], 1)
-    offset = _integer(output["input_offset"], 4096)
+    offset = _integer(output["input_offset"], MAX_EVENTS)
     context = _digest(output["context_sha256"])
     fact = object_value(output["fact"])
     require_keys(
@@ -303,6 +304,13 @@ class RecordingSQL:
             f"CREATE VIEW {self.database}.measurements AS "
             f"SELECT DISTINCT {', '.join(_COLUMNS)} FROM {self.database}.facts"
         )
+        # Dashboards read typed values only. Excluding the raw JSON columns keeps
+        # a complete-flight scan inside the datasource byte budget.
+        typed = [name for name in _COLUMNS if not name.endswith("_json")]
+        self._execute(
+            f"CREATE VIEW {self.database}.points AS "
+            f"SELECT DISTINCT {', '.join(typed)} FROM {self.database}.facts"
+        )
 
     def _execute(self, sql: str, body: bytes = b"") -> None:
         if len(body) > _MAX_BODY_BYTES:
@@ -388,15 +396,51 @@ class RecordingSQL:
         )
         check(self.read(query), complete=True)
 
+    def logical_count(self) -> int:
+        """Count distinct identities by scanning only the event_id column.
+
+        The DISTINCT measurements view reads every raw JSON column, so it exceeds
+        the scan budget well before a complete flight. write_facts refuses
+        competing content, so distinct identities equal logical measurements.
+        """
+        rows = self.read(f"SELECT uniqExact(event_id) AS n FROM {self.database}.facts")
+        if len(rows) != 1 or set(rows[0]) != {"n"}:
+            raise ValueError("recording_sql_count_readback")
+        return _integer(rows[0]["n"], MAX_EVENTS + 1)
+
+    def logical_ids(self) -> set[str]:
+        """Read the complete identity set in ordered keyset pages."""
+        result: set[str] = set()
+        last = ""
+        for _ in range(MAX_EVENTS // _MAX_ROWS + 2):
+            # Only a validated hexadecimal identity enters the page condition.
+            rows = self.read(
+                f"SELECT DISTINCT event_id FROM {self.database}.facts "
+                f"WHERE event_id > '{last}' ORDER BY event_id LIMIT {_MAX_ROWS}"
+            )
+            for row in rows:
+                if set(row) != {"event_id"}:
+                    raise ValueError("recording_sql_identity_readback")
+                identity = _digest(row["event_id"])
+                if identity <= last:
+                    raise ValueError("recording_sql_identity_order")
+                result.add(identity)
+                last = identity
+            if len(result) > MAX_EVENTS:
+                raise ValueError("recording_sql_identity_bound")
+            if len(rows) < _MAX_ROWS:
+                return result
+        raise ValueError("recording_sql_identity_bound")
+
     def progress(
         self, status: str, input_next: int, output_count: int, expected: int
     ) -> None:
         """Record pipeline observation time, never source time or connectivity."""
         if not isinstance(status, str) or status not in _STATUSES:
             raise ValueError("recording_sql_progress_status")
-        _integer(input_next, 4097)
-        _integer(output_count, 4097)
-        _integer(expected, 4097)
+        _integer(input_next, MAX_EVENTS + 1)
+        _integer(output_count, MAX_EVENTS + 1)
+        _integer(expected, MAX_EVENTS + 1)
         if (
             expected < 1
             or output_count > min(expected, input_next)

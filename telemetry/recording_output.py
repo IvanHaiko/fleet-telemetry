@@ -24,6 +24,9 @@ from telemetry.recording_processing import (
     FACT_PROFILE,
     MAX_AGE_US,
 )
+from telemetry.recording_processing import (
+    MAX_EVENTS as PROCESSING_MAX_EVENTS,
+)
 from telemetry.recording_stream import (
     STREAMS,
     event_bytes,
@@ -33,7 +36,9 @@ from ulog_integrity import F09_SOURCE_ID
 
 type Document = dict[str, object]
 
-MAX_EVENTS = 4096
+# One recording lane admits the reviewed preparation cap: the complete F09 flight
+# is 39,758 selected observations plus declared duplicate deliveries.
+MAX_EVENTS = PROCESSING_MAX_EVENTS
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 65_536
 OUTPUT_PROFILE = "f09-recording-output-v1"
