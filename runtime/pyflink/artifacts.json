@@ -1,0 +1,35 @@
+{
+  "profile": "pyflink-compatibility-v1",
+  "platform": "linux-x86_64-gnu",
+  "pyflink": "2.2.1",
+  "connector": "5.0.0-2.2",
+  "kafka_client": "4.2.0",
+  "artifacts": {
+    "python": {
+      "version": "3.12.13",
+      "build": "20260602",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260602/cpython-3.12.13%2B20260602-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "sha256": "191b5188b42886fb8a14968d714571e8f3d1cef92ac7ad4c7e24cc4d0929b194",
+      "filename": "cpython-3.12.13%2B20260602-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+    },
+    "jdk": {
+      "version": "17.0.20.1+1",
+      "vendor": "Eclipse Temurin",
+      "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz",
+      "sha256": "3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e",
+      "filename": "OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz"
+    },
+    "uv": {
+      "version": "0.11.19",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.19/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "7035608168e106375b36d0c818d537a889c51a8625fe7f8f7cad5e62b947c368",
+      "filename": "uv-x86_64-unknown-linux-gnu.tar.gz"
+    },
+    "kafka_sql": {
+      "url": "https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/5.0.0-2.2/flink-sql-connector-kafka-5.0.0-2.2.jar",
+      "sha256": "5605c691d11a501382c383fecba37a7a552467da5ab7ba904ef5d6f3d62c5616",
+      "upstream_sha1": "7bf2ded1144cb8aece05adcaccbc81b2ac3ef339",
+      "filename": "flink-sql-connector-kafka-5.0.0-2.2.jar"
+    }
+  }
+}

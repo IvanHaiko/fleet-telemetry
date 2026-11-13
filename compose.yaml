@@ -1,0 +1,119 @@
+name: fleet-telemetry-local
+
+x-flink: &flink
+  image: fleet-telemetry/local-flink:2.2.1
+  build: ./runtime/local
+  environment:
+    FLINK_PROPERTIES: |
+      jobmanager.rpc.address: jobmanager
+      rest.address: jobmanager
+      taskmanager.numberOfTaskSlots: 2
+      parallelism.default: 2
+      jobmanager.memory.process.size: 768m
+      taskmanager.memory.process.size: 1536m
+      execution.checkpointing.interval: 5s
+      execution.checkpointing.dir: file:///opt/flink/checkpoints
+  volumes:
+    - checkpoints:/opt/flink/checkpoints
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 5m, max-file: "2"}
+
+services:
+  kafka:
+    image: apache/kafka:4.4.0@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f
+    hostname: kafka
+    ports: ["127.0.0.1:9092:19092"]
+    environment:
+      CLUSTER_ID: bG9jYWwtZmxlZXQtZGVtbw
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 30000
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes: [kafka-data:/var/lib/kafka/data]
+    mem_limit: 1g
+    cpus: 1
+    healthcheck:
+      test: [CMD, /opt/kafka/bin/kafka-topics.sh, --bootstrap-server, kafka:9092, --list]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+
+  topics:
+    image: apache/kafka:4.4.0@sha256:833b867a9585a141da455dc2b57431c65cbccb27f11c91f694444cca9f777e0f
+    depends_on:
+      kafka: {condition: service_healthy}
+    entrypoint: [/bin/bash, /demo/init-topics.sh]
+    volumes: [./runtime/local/init-topics.sh:/demo/init-topics.sh:ro]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: "no"
+
+  jobmanager:
+    <<: *flink
+    command: jobmanager
+    depends_on:
+      topics: {condition: service_completed_successfully}
+    ports: ["127.0.0.1:8081:8081"]
+    mem_limit: 1g
+    cpus: 1
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://localhost:8081/overview >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on:
+      jobmanager: {condition: service_healthy}
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://jobmanager:8081/taskmanagers | grep -q '\"id\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  submit:
+    <<: *flink
+    profiles: [jobs]
+    command: [bin/sql-client.sh, -f, /opt/flink/jobs/battery.sql]
+    depends_on:
+      taskmanager: {condition: service_healthy}
+    mem_limit: 1g
+    cpus: 1
+    restart: "no"
+
+volumes:
+  kafka-data:
+  checkpoints:
+
+networks:
+  default:
+    ipam:
+      config: [{subnet: "${FLEET_LOCAL_SUBNET:-10.253.240.0/28}"}]

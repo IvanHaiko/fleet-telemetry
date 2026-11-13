@@ -1,0 +1,7 @@
+FROM fleet-telemetry/pyflink-m3:2.2.1-local1@sha256:aae5d7de2f67aa7f789a394e378c4af47b624d89902108f29b303e40ec6bba72
+USER 0:0
+RUN mv /opt/m3/preflight.py /opt/m3/preflight-base.py
+COPY patched-connector.jar ${FLINK_HOME}/lib/flink-sql-connector-kafka-5.0.0-2.2.jar
+COPY image-pin.json /opt/m3/connector-image-pin.json
+COPY preflight-backport.py /opt/m3/preflight.py
+USER 10001:10001

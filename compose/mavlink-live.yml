@@ -1,0 +1,58 @@
+# One isolated live simulator; host UDP is never published.
+services:
+  gateway:
+    image: python@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
+    pull_policy: never
+    user: "10001:10001"
+    working_dir: /workspace
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 32
+    environment:
+      PYTHONPATH: /deps:/workspace
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: [python, -u, -B, -m, runtime.continuous.mavlink_live, --config, /config/live.json, --host, 0.0.0.0]
+    ports: ["127.0.0.1:18771:18771"]
+    volumes:
+      - ../runtime:/workspace/runtime:ro
+      - ../telemetry:/workspace/telemetry:ro
+      - ../ulog_integrity.py:/workspace/ulog_integrity.py:ro
+      - ${FLEET_MAVLINK_PACKAGES:?Set existing pinned Linux packages directory}:/deps:ro
+      - ${FLEET_MAVLINK_CONFIG:?Set private live source config}:/config/live.json:ro
+    networks: [live-internal, live-access]
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+  sitl:
+    image: px4io/px4-sitl@sha256:39d5a950208a5a45fccbbb0670bd8716663ed0b350ef738447581395e0c92d97
+    pull_policy: never
+    entrypoint: [/opt/px4/bin/px4]
+    command: [-i, "0"]
+    stdin_open: true
+    tty: true
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 256
+    environment:
+      PX4_SIM_MODEL: sihsim_quadx
+      PX4_HOME_LAT: "47.3982"
+      PX4_HOME_LON: "8.5463"
+      PX4_HOME_ALT: "490"
+    depends_on: [gateway]
+    networks: [live-internal]
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+networks:
+  live-internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${FLEET_MAVLINK_SUBNET:-10.254.247.0/28}
+  live-access:
+    ipam:
+      config:
+        - subnet: ${FLEET_MAVLINK_ACCESS_SUBNET:-10.254.247.16/28}

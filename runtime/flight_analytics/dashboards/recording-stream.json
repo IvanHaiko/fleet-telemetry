@@ -1,0 +1,1091 @@
+{
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "13.2.4"
+    },
+    {
+      "type": "datasource",
+      "id": "grafana-clickhouse-datasource",
+      "name": "ClickHouse",
+      "version": "4.23.2"
+    }
+  ],
+  "uid": "mvp-f09-stream",
+  "title": "Telemetry \u2014 F09 historical recording stream",
+  "description": "Bounded F09 recording replay through processing-backed SQL. Native boot time, separate association uncertainty and last reported pipeline progress; no live aircraft connectivity claim.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "utc",
+  "tags": [
+    "telemetry",
+    "historical",
+    "recorded-source",
+    "bounded-replay"
+  ],
+  "refresh": "5s",
+  "timepicker": {
+    "hidden": true
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "database",
+        "type": "constant",
+        "hide": 2,
+        "skipUrlSync": true,
+        "query": "f09_stream_mvp_20261111_001",
+        "current": {
+          "text": "f09_stream_mvp_20261111_001",
+          "value": "f09_stream_mvp_20261111_001"
+        },
+        "options": [
+          {
+            "text": "f09_stream_mvp_20261111_001",
+            "value": "f09_stream_mvp_20261111_001",
+            "selected": true
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "F09 historical recording \u2014 bounded replay",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Historical recording.** This view follows one selected 60-second F09 interval through processing-backed SQL. Refresh is every five seconds. Pipeline **recorded_replay / running / paused / completed / stopped / failed** describes the replay; paused, completed or stopped is not live device connectivity. A retained position is historical. Status is the last reported observation and may outlive a worker. Missing metrics remain **Unknown**; no monitoring or connectivity health is inferred.\n\nCharts use **native boot seconds**, not physical UTC or arrival time. Battery timestamps retain publication-time meaning; past-only battery/state associations use an inclusive one-second age bound and separate gap masks. Missing values and ages remain NULL/Unknown. Matched values do not prove physical simultaneity. Raw flags and mode codes do not establish flight phases, safety or source completeness. Pipeline written_ms is wall-clock observation time only. Queries cover this bounded interval, with a 4,096-row display cap; budget overruns fail rather than truncate silently. The offline map uses bundled country boundaries and no external tiles."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Logical GPS measurements",
+      "type": "stat",
+      "description": "Distinct GPS identities in the logical measurements view. Counts alone do not prove reconciliation or archive coverage.",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT uniqExact(event_id) AS logical_gps_count FROM ${database}.measurements LIMIT 1 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Last reported replay status",
+      "type": "stat",
+      "description": "Last reported pipeline state, not aircraft connectivity or worker liveness. An absent report is Unknown; a retained report may be stale.",
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT status FROM ${database}.progress ORDER BY written_ms DESC,input_next DESC,output_count DESC LIMIT 1 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Last reported pipeline progress",
+      "type": "table",
+      "description": "Input next offset, reported output count and expected GPS facts are pipeline observations. written_ms is report wall time in Unix milliseconds, not measurement time. This is the latest report, not an atomic SQL/progress snapshot or a reconciliation verdict.",
+      "gridPos": {
+        "x": 9,
+        "y": 5,
+        "w": 15,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT written_ms,status,input_next,output_count,expected FROM ${database}.progress ORDER BY written_ms DESC,input_next DESC,output_count DESC LIMIT 1 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Historical route and last recorded position \u2014 offline map",
+      "type": "geomap",
+      "description": "All admitted positions in the selected bounded interval; the larger marker is the last recorded position. No live connection is inferred. Bundled geography only; the loopback tile endpoint disables remote tiles.",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT latitude_deg AS latitude,longitude_deg AS longitude FROM ${database}.measurements WHERE latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY native_seconds DESC,event_id DESC LIMIT 1 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT latitude_deg AS latitude,longitude_deg AS longitude FROM ${database}.measurements WHERE latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "view": {
+          "id": "fit",
+          "allLayers": false,
+          "layer": "Historical route \u2014 all selected GPS facts",
+          "lastOnly": false,
+          "padding": 10,
+          "maxZoom": 18,
+          "zoom": 18
+        },
+        "basemap": {
+          "type": "xyz",
+          "name": "No external tiles",
+          "config": {
+            "url": "http://127.0.0.1:1/{z}/{x}/{y}.png"
+          }
+        },
+        "layers": [
+          {
+            "name": "Offline country boundaries",
+            "type": "geojson",
+            "tooltip": false,
+            "opacity": 1,
+            "config": {
+              "src": "public/maps/countries.geojson",
+              "rules": [],
+              "style": {
+                "color": {
+                  "fixed": "#5794F2"
+                },
+                "opacity": 0.2,
+                "size": {
+                  "fixed": 2
+                }
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Historical route \u2014 all selected GPS facts",
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "tooltip": false,
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "orange"
+                },
+                "size": {
+                  "fixed": 3
+                },
+                "opacity": 0.55
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Last recorded position",
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "blue"
+                },
+                "size": {
+                  "fixed": 12
+                },
+                "opacity": 0.8
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": true,
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            }
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "GPS ground speed (m/s)",
+      "type": "xychart",
+      "description": "Selected interval in native boot seconds; no physical UTC is inferred. Points preserve unobserved intervals and NULL values; no interpolation.",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,ground_speed_m_s FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "velocityms",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "GPS ground speed (m/s)",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "GPS altitude MSL (m)",
+      "type": "xychart",
+      "description": "Selected interval in native boot seconds; no physical UTC is inferred. Points preserve unobserved intervals and NULL values; no interpolation.",
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,altitude_msl_m FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "GPS altitude MSL (m)",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Associated battery voltage (V)",
+      "type": "xychart",
+      "description": "Selected interval in native boot seconds; no physical UTC is inferred. Points preserve unobserved intervals and NULL values; no interpolation.",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,voltage_v FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Associated battery voltage (V)",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Associated battery current (A)",
+      "type": "xychart",
+      "description": "Selected interval in native boot seconds; no physical UTC is inferred. Points preserve unobserved intervals and NULL values; no interpolation.",
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,current_a FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Associated battery current (A)",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Associated battery remaining fraction",
+      "type": "xychart",
+      "description": "Selected interval in native boot seconds; no physical UTC is inferred. Points preserve unobserved intervals and NULL values; no interpolation.",
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,remaining_fraction FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Associated battery remaining fraction",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Battery association quality",
+      "type": "table",
+      "description": "Separate battery association statuses, counts and matched-age bounds in seconds. Unknown values and ages remain NULL. A matched battery may still have an unknown current; no missing value is replaced with zero.",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT battery_status,count() AS gps_facts,min(battery_age_us)/1000000.0 AS min_battery_age_s,max(battery_age_us)/1000000.0 AS max_battery_age_s FROM ${database}.measurements GROUP BY battery_status ORDER BY battery_status LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Association ages (s)",
+      "type": "xychart",
+      "description": "Past-only age at each GPS observation, separately for battery, land detector and commander. Unknown association ages remain NULL; the inclusive match bound is one second.",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,battery_age_us/1000000.0 AS battery_age_s,land_age_us/1000000.0 AS land_age_s,vehicle_status_age_us/1000000.0 AS vehicle_status_age_s FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Association ages (s)",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Raw recorded land-detector flags",
+      "type": "xychart",
+      "description": "Recorded raw flag values, with separate association quality below. Missing flags stay NULL. These observations do not classify physical flight phases.",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,landed,ground_contact,maybe_landed FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Raw recorded land-detector flags",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Raw recorded commander values",
+      "type": "xychart",
+      "description": "Original arming/nav state codes and failsafe flag without decoding, phase inference or safety assessment. Missing values stay NULL; association quality appears separately.",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT native_seconds,arming_state,nav_state,failsafe FROM ${database}.measurements ORDER BY native_seconds,event_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Raw recorded commander values",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Recorded state association quality \u2014 separate streams",
+      "type": "table",
+      "description": "Land-detector and commander association statuses remain separate. A match in one stream does not fill an unknown in the other. Recording gaps, stale and before-first states remain visible.",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT land_status,vehicle_status_status,count() AS gps_facts FROM ${database}.measurements GROUP BY land_status,vehicle_status_status ORDER BY land_status,vehicle_status_status LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "generator_version": "literal-records-v1",
+  "native_format_version": "synthetic-battery-native-v1",
+  "seed": 0,
+  "scenario": "Two inputs, idle resumption with a late measurement, duplicate deliveries and event-time deduplication-horizon expiry. Original project-authored values.",
+  "records": [
+    {
+      "source_record_index": 0,
+      "timestamp_us": 0,
+      "voltage_mv": 1000,
+      "current_ma": 4200,
+      "remaining_pct": 72
+    },
+    {
+      "source_record_index": 1,
+      "timestamp_us": 0,
+      "voltage_mv": 2000
+    },
+    {
+      "source_record_index": 2,
+      "timestamp_us": 9000000,
+      "voltage_mv": 4000,
+      "current_ma": 0,
+      "remaining_pct": 50
+    },
+    {
+      "source_record_index": 3,
+      "timestamp_us": 12000000,
+      "voltage_mv": 3000,
+      "current_ma": -1250,
+      "remaining_pct": -1
+    },
+    {
+      "source_record_index": 4,
+      "timestamp_us": 22000000,
+      "voltage_mv": 5000
+    },
+    {
+      "source_record_index": 5,
+      "timestamp_us": 622000000,
+      "voltage_mv": 6000
+    }
+  ]
+}

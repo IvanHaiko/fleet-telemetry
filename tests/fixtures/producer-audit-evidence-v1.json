@@ -1,0 +1,133 @@
+{
+  "commands": [
+    {
+      "command": [
+        "python3.13",
+        "scripts/check-kafka-producer.py",
+        "--job",
+        "synthetic-conversion-job.json",
+        "--run",
+        "demo-synthetic-001",
+        "--prefix",
+        "audit-producer",
+        "--output",
+        "lost-progress.json",
+        "--attempt",
+        "initial"
+      ],
+      "exit_code": 88,
+      "stderr": "",
+      "stdout": "{\"status\": \"acknowledged_before_local_receipt\", \"cluster_id\": \"synthetic-cluster\", \"topic_id\": \"synthetic-topic-id\", \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"producer_config\": {\"bootstrap.servers\": \"127.0.0.1:19092\", \"enable.idempotence\": true, \"acks\": \"all\", \"max.in.flight.requests.per.connection\": 5, \"message.timeout.ms\": 5000, \"queue.buffering.max.messages\": 1000, \"queue.buffering.max.kbytes\": 4096, \"log_level\": 0}, \"acknowledged\": [{\"input_position\": 0, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 0}, {\"input_position\": 1, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 1}, {\"input_position\": 2, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 2}], \"pending\": 0}"
+    },
+    {
+      "command": [
+        "python3.13",
+        "scripts/check-kafka-producer.py",
+        "--job",
+        "synthetic-conversion-job.json",
+        "--run",
+        "demo-synthetic-001",
+        "--prefix",
+        "audit-producer",
+        "--output",
+        "retry-receipt.json",
+        "--attempt",
+        "retry",
+        "--expected-cluster",
+        "synthetic-cluster",
+        "--expected-topic",
+        "synthetic-topic-id"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "{\"status\": \"retry_attempt_receipt_verified\", \"cluster_id\": \"synthetic-cluster\", \"topic_id\": \"synthetic-topic-id\", \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"producer_config\": {\"bootstrap.servers\": \"127.0.0.1:19092\", \"enable.idempotence\": true, \"acks\": \"all\", \"max.in.flight.requests.per.connection\": 5, \"message.timeout.ms\": 5000, \"queue.buffering.max.messages\": 1000, \"queue.buffering.max.kbytes\": 4096, \"log_level\": 0}, \"acknowledged\": [{\"input_position\": 0, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 3}, {\"input_position\": 1, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 4}, {\"input_position\": 2, \"acknowledged\": true, \"error_code\": null, \"topic\": \"m2.audit-producer.producer.canonical.v1\", \"partition\": 0, \"offset\": 5}], \"pending\": 0}"
+    }
+  ],
+  "observations": [
+    {
+      "event_id": "sha256:69bab69c2d17a4b26fe106cd20feaf128a70f9699a146eb28e36b607d05df760",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 0,
+      "partition": 0,
+      "value_sha256": "74be7fd002702ad0fd00997da064521d15ee65024b8bffa790a1ec3229a75bb1"
+    },
+    {
+      "event_id": "sha256:d1d0b623e9c088362c8299ead337287d86bc81a2c6bfaa9d612b32b6403ac70d",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 1,
+      "partition": 0,
+      "value_sha256": "238603eb90eb29f8c5de7020153f3e3a830c0caeade9ccd5ff91e5ee35078e09"
+    },
+    {
+      "event_id": "sha256:b487b5e101415503c758accb6c4aceb1e82f132ef410ccb6bab5a46ae8c4bc4b",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 2,
+      "partition": 0,
+      "value_sha256": "5aada77a903e8a61b14d5c2e5c22fbe64ca853e5d8012421d9ea3848a5538e8b"
+    },
+    {
+      "event_id": "sha256:69bab69c2d17a4b26fe106cd20feaf128a70f9699a146eb28e36b607d05df760",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 3,
+      "partition": 0,
+      "value_sha256": "74be7fd002702ad0fd00997da064521d15ee65024b8bffa790a1ec3229a75bb1"
+    },
+    {
+      "event_id": "sha256:d1d0b623e9c088362c8299ead337287d86bc81a2c6bfaa9d612b32b6403ac70d",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 4,
+      "partition": 0,
+      "value_sha256": "238603eb90eb29f8c5de7020153f3e3a830c0caeade9ccd5ff91e5ee35078e09"
+    },
+    {
+      "event_id": "sha256:b487b5e101415503c758accb6c4aceb1e82f132ef410ccb6bab5a46ae8c4bc4b",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 5,
+      "partition": 0,
+      "value_sha256": "5aada77a903e8a61b14d5c2e5c22fbe64ca853e5d8012421d9ea3848a5538e8b"
+    }
+  ],
+  "retry_receipt": {
+    "acknowledged": [
+      {
+        "acknowledged": true,
+        "error_code": null,
+        "input_position": 0,
+        "offset": 3,
+        "partition": 0,
+        "topic": "m2.audit-producer.producer.canonical.v1"
+      },
+      {
+        "acknowledged": true,
+        "error_code": null,
+        "input_position": 1,
+        "offset": 4,
+        "partition": 0,
+        "topic": "m2.audit-producer.producer.canonical.v1"
+      },
+      {
+        "acknowledged": true,
+        "error_code": null,
+        "input_position": 2,
+        "offset": 5,
+        "partition": 0,
+        "topic": "m2.audit-producer.producer.canonical.v1"
+      }
+    ],
+    "cluster_id": "synthetic-cluster",
+    "pending": 0,
+    "producer_config": {
+      "acks": "all",
+      "bootstrap.servers": "127.0.0.1:19092",
+      "enable.idempotence": true,
+      "log_level": 0,
+      "max.in.flight.requests.per.connection": 5,
+      "message.timeout.ms": 5000,
+      "queue.buffering.max.kbytes": 4096,
+      "queue.buffering.max.messages": 1000
+    },
+    "status": "retry_attempt_receipt_verified",
+    "topic": "m2.audit-producer.producer.canonical.v1",
+    "topic_id": "synthetic-topic-id"
+  }
+}

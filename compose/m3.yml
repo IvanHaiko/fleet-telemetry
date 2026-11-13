@@ -1,0 +1,65 @@
+name: fleet-m3-final
+
+x-flink: &flink
+  image: fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956
+  platform: linux/amd64
+  user: "10001:10001"
+  volumes:
+    - state:/state
+    - ${M3_SOURCE_ROOT:?An explicit immutable source export is required}:/workspace:ro
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: 5m
+      max-file: "2"
+
+services:
+  kafka:
+    image: fleet-telemetry/kafka-probe:4.4.0@sha256:676a930ab90762c2c32ef79642ad2293c18e5cea96381fc72af54e51fb3cd1c3
+    platform: linux/amd64
+    ports: ["127.0.0.1:19092:19092"]
+    environment:
+      KAFKA_CLUSTER_ID: "AwMDAwMDAwMDAwMDAwMDAw"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1536m
+    cpus: 2
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+  jobmanager:
+    <<: *flink
+    command: [jobmanager]
+    ports: ["127.0.0.1:18081:8081"]
+    mem_limit: 1536m
+    cpus: 1
+  taskmanager:
+    <<: *flink
+    command: [taskmanager]
+    depends_on: [jobmanager]
+    mem_limit: 3072m
+    cpus: 2
+  submit:
+    <<: *flink
+    profiles: [submit]
+    command: [preflight]
+    mem_limit: 1024m
+    cpus: 1
+
+volumes:
+  kafka-data:
+  state:

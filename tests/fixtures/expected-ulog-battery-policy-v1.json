@@ -1,0 +1,95 @@
+{
+  "expectation_version": "ulog-battery-policy-expectations-v1",
+  "case_fixture_version": "ulog-battery-policy-cases-v1",
+  "status": "proposed",
+  "scope": "Manually specified partial expected outcomes for review; no adapter outputs, event IDs or wire compatibility evidence.",
+  "accepted": [
+    {
+      "case_id": "connected_discharge",
+      "source_record_index": 0,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 4.25, "remaining_fraction": 0.5},
+      "quality_flags": ["synthetic_time_anchor"]
+    },
+    {
+      "case_id": "connected_unknown_current",
+      "source_record_index": 1,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": null, "remaining_fraction": 0.5},
+      "quality_flags": ["source_value_missing", "synthetic_time_anchor"]
+    },
+    {
+      "case_id": "connected_zero_current",
+      "source_record_index": 2,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 0.0, "remaining_fraction": 0.5},
+      "quality_flags": ["synthetic_time_anchor"]
+    },
+    {
+      "case_id": "disconnected_valid",
+      "source_record_index": 5,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 4.25, "remaining_fraction": 0.5},
+      "quality_flags": ["source_battery_disconnected", "synthetic_time_anchor"]
+    },
+    {
+      "case_id": "disconnected_unknown_current",
+      "source_record_index": 6,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": null, "remaining_fraction": 0.5},
+      "quality_flags": ["source_battery_disconnected", "source_value_missing", "synthetic_time_anchor"]
+    },
+    {
+      "case_id": "disconnected_unknown_remaining",
+      "source_record_index": 11,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 4.25, "remaining_fraction": null},
+      "quality_flags": ["source_battery_disconnected", "source_value_missing", "synthetic_time_anchor"]
+    },
+    {
+      "case_id": "disconnected_both_optional_unknown",
+      "source_record_index": 12,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": null, "remaining_fraction": null},
+      "quality_flags": ["source_battery_disconnected", "source_value_missing", "synthetic_time_anchor"]
+    },
+    {
+      "case_id": "connected_empty_remaining",
+      "source_record_index": 13,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 4.25, "remaining_fraction": 0.0},
+      "quality_flags": ["synthetic_time_anchor"]
+    },
+    {
+      "case_id": "connected_negative_zero_current",
+      "source_record_index": 21,
+      "source_timestamp": "2026-01-01T00:00:01.000000Z",
+      "timestamp_kind": "publication",
+      "payload": {"voltage_v": 12.5, "current_a": 0.0, "remaining_fraction": 0.5},
+      "quality_flags": ["synthetic_time_anchor"]
+    }
+  ],
+  "rejected": [
+    {"case_id": "connected_negative_fraction", "source_record_index": 3, "reason_code": "invalid_unit_value", "field": "current_a"},
+    {"case_id": "connected_negative_below_sentinel", "source_record_index": 4, "reason_code": "invalid_unit_value", "field": "current_a"},
+    {"case_id": "disconnected_unknown_voltage", "source_record_index": 7, "reason_code": "invalid_unit_value", "field": "voltage_v"},
+    {"case_id": "disconnected_unknown_voltage_and_current", "source_record_index": 8, "reason_code": "invalid_unit_value", "field": "voltage_v"},
+    {"case_id": "connected_unknown_voltage", "source_record_index": 9, "reason_code": "invalid_unit_value", "field": "voltage_v"},
+    {"case_id": "disconnected_invalid_current", "source_record_index": 10, "reason_code": "invalid_unit_value", "field": "current_a"},
+    {"case_id": "disconnected_invalid_remaining", "source_record_index": 14, "reason_code": "invalid_unit_value", "field": "remaining"},
+    {"case_id": "disconnected_missing_current", "source_record_index": 15, "reason_code": "missing_required_field", "field": "current_a"},
+    {"case_id": "disconnected_null_current", "source_record_index": 16, "reason_code": "invalid_unit_value", "field": "current_a"},
+    {"case_id": "string_connection_state", "source_record_index": 17, "reason_code": "invalid_record", "field": "connected"},
+    {"case_id": "integer_connection_state", "source_record_index": 18, "reason_code": "invalid_record", "field": "connected"},
+    {"case_id": "missing_connection_state", "source_record_index": 19, "reason_code": "missing_required_field", "field": "connected"},
+    {"case_id": "disconnected_missing_timestamp", "source_record_index": 20, "reason_code": "missing_required_field", "field": "timestamp"}
+  ]
+}

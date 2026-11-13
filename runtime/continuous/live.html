@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Fleet — live Flink telemetry</title>
+<style>
+body{font:17px system-ui;background:#101722;color:#e9edf4;max-width:1300px;margin:32px auto;padding:16px}
+input,button{font:inherit;padding:8px}.table-wrap{overflow-x:auto}table{width:100%;min-width:960px;border-collapse:collapse;margin-top:24px}
+td,th{text-align:left;padding:10px;border-bottom:1px solid #344054}.bad,.stale,.unknown{color:#f2ca75}.ok,.fresh,.recovered{color:#79e5a0}.slow{color:#ffbb80}
+.table-hint{display:none}@media(max-width:700px){.table-hint{display:block}}
+</style><h1>Live telemetry from Flink</h1>
+<p>Kafka input → Flink admission and Battery state → immediate Kafka output → this view.</p>
+<form id="login"><label>Reader token <input id="token" type="password" autocomplete="off" required></label> <button>Connect</button></form>
+<p id="health" role="status" class="unknown">Collector not connected</p>
+<p>Fresh means an update arrived within 3 seconds; this one-Hz demo threshold is not a radio connection status. Use the separate heartbeat monitor for connection loss.</p>
+<p>Last delivery is admission to the live collector, dependent on synchronized producer and collector clocks. Slow means at least 2 seconds for this demo. It is not the current Kafka backlog or browser latency. Replayed startup values have unknown freshness and delay.</p>
+<p class="table-hint">Scroll the table horizontally for delivery and age.</p>
+<div class="table-wrap"><table><thead><tr><th>Vehicle</th><th>Data status</th><th>Voltage, V</th><th>Current, A</th><th>Battery, %</th><th>Measurement UTC</th><th>Last delivery</th><th>Update age</th></tr></thead><tbody id="rows"></tbody></table></div>
+<script>
+let token='', generation=0, activeRun='', connected=false, everConnected=false, wasUnavailable=false, recoveredUntil=0;
+const health=document.querySelector('#health'), rows=document.querySelector('#rows');
+const elements=new Map(), FRESH_SECONDS=3, SLOW_MS=2000, RECOVERY_MS=3000;
+function unavailable(message='Collector unavailable — displayed values are uncertain'){
+ connected=false;wasUnavailable=true;health.textContent=message;health.className='unknown';rows.style.opacity='.5';
+ for(const tr of rows.children){tr.children[1].textContent='Unknown';tr.children[1].className='unknown';tr.children[7].textContent='Unknown';tr.dataset.status='unknown';}
+}
+document.querySelector('#login').onsubmit=e=>{e.preventDefault();token=document.querySelector('#token').value;document.querySelector('#token').value='';poll(++generation);};
+async function poll(version){
+ if(version!==generation)return;
+ let failureMessage='Collector unavailable — displayed values are uncertain';
+ try{
+  const response=await fetch('/v1/telemetry',{headers:{Authorization:'Bearer '+token},cache:'no-store',signal:AbortSignal.timeout(500)});
+  if(response.status===401){failureMessage='Reader token rejected — collector status unknown';throw Error('unauthorized');}
+  if(!response.ok)throw Error('unavailable');
+  const state=await response.json();if(version!==generation)return;
+  if(state.format_version!=='flink-live-state-v1'||typeof state.collection_ok!=='boolean'||!Array.isArray(state.vehicles)||!state.vehicles.length||state.vehicles.length>1024||typeof state.run_id!=='string')throw Error('invalid state');
+  if(!state.collection_ok){unavailable('Collector unavailable or rebuilding — displayed values are uncertain');}
+  else{
+   const now=performance.now();if(!connected&&wasUnavailable&&everConnected)recoveredUntil=now+RECOVERY_MS;
+   connected=true;everConnected=true;rows.style.opacity='1';
+   if(activeRun!==state.run_id){elements.clear();rows.replaceChildren();activeRun=state.run_id;}
+   let stale=0, unknown=0, delayed=0;const seen=new Set();
+   for(const v of state.vehicles){
+    if(typeof v.vehicle_id!=='string'||seen.has(v.vehicle_id))throw Error('invalid vehicle');seen.add(v.vehicle_id);
+    let tr=elements.get(v.vehicle_id);const existed=Boolean(tr);
+    if(!tr){tr=document.createElement('tr');tr.dataset.vehicle=v.vehicle_id;for(let i=0;i<8;i++)tr.append(document.createElement('td'));elements.set(v.vehicle_id,tr);rows.append(tr);}
+    const eventId=typeof v.event_id==='string'?v.event_id:'', changed=existed&&eventId!==''&&tr.dataset.event!==eventId;
+    const age=eventId&&typeof v.live_age_seconds==='number'&&Number.isFinite(v.live_age_seconds)&&v.live_age_seconds>=0?v.live_age_seconds:null;
+    const freshness=age===null?'unknown':age>=FRESH_SECONDS?'stale':'fresh';
+    if(changed&&tr.dataset.wasLive==='yes'&&freshness==='fresh'&&(tr.dataset.status==='stale'||tr.dataset.status==='unknown'))tr.dataset.recoveredUntil=String(now+RECOVERY_MS);
+    if(age!==null)tr.dataset.wasLive='yes';
+    const payload=v.payload||{};
+    const delay=age!==null&&typeof v.admission_to_live_ms==='number'&&Number.isFinite(v.admission_to_live_ms)&&v.admission_to_live_ms>=0?v.admission_to_live_ms:null;
+    const slow=delay!==null&&delay>=SLOW_MS, recovered=freshness==='fresh'&&now<Number(tr.dataset.recoveredUntil||0);
+    const status=recovered?(slow?'slow':'recovered'):freshness==='fresh'&&slow?'slow':freshness;
+    if(freshness==='stale')stale++;if(freshness==='unknown')unknown++;if(slow)delayed++;
+    tr.dataset.status=freshness;tr.dataset.event=eventId;
+    const statusText=recovered?(slow?'Updates resumed · delayed':'Updates resumed'):status==='slow'?'Delayed':{fresh:'Fresh',stale:'Stale',unknown:eventId?'Replayed or unknown':'Waiting for data'}[status];
+    const values=[v.vehicle_id,statusText,payload.voltage_v??'—',payload.current_a??'—',payload.remaining_fraction==null?'—':(payload.remaining_fraction*100).toFixed(1),v.source_timestamp||'Not observed',delay===null?'Unknown':(delay>=SLOW_MS?'Slow · ':'')+delay.toFixed(0)+' ms',age===null?'Unknown':age.toFixed(1)+' s'];
+    values.forEach((value,i)=>{if(tr.children[i].textContent!==String(value))tr.children[i].textContent=value;});
+    tr.children[1].className=status;tr.children[6].className=delay!==null&&delay>=SLOW_MS?'slow':'';
+   }
+   for(const [id,tr] of elements)if(!seen.has(id)){tr.remove();elements.delete(id);}
+   health.textContent=(now<recoveredUntil?'Collector reconnected':'Collector connected')+' · run '+state.run_id+' · '+state.vehicles.length+' vehicles · '+stale+' stale · '+unknown+' unknown · '+delayed+' slow delivery';
+   health.className=stale||unknown||delayed?'bad':'ok';
+  }
+ }catch{if(version===generation)unavailable(failureMessage);}
+ if(version===generation)setTimeout(()=>poll(version),50);
+}
+document.addEventListener('visibilitychange',()=>{unavailable('Browser paused or resumed — awaiting a fresh collector response');});
+</script></html>

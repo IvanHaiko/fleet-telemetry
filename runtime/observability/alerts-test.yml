@@ -1,0 +1,68 @@
+rule_files: [alerts.yml]
+evaluation_interval: 2s
+tests:
+  - name: exactly-eighty-percent-does-not-warn
+    interval: 2s
+    input_series:
+      - series: 'up{job="flink",instance="taskmanager:9249"}'
+        values: '1x30'
+      - series: 'scrape_samples_post_metric_relabeling{job="flink",instance="taskmanager:9249"}'
+        values: '16000x30'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: TelemetryFlinkScrapeNearLimit
+        exp_alerts: []
+  - name: sustained-warning-and-recovery
+    interval: 2s
+    input_series:
+      - series: 'up{job="flink",instance="taskmanager:9249"}'
+        values: '1x25'
+      - series: 'scrape_samples_post_metric_relabeling{job="flink",instance="taskmanager:9249"}'
+        values: '16001x16 10638x8'
+    alert_rule_test:
+      - eval_time: 28s
+        alertname: TelemetryFlinkScrapeNearLimit
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: TelemetryFlinkScrapeNearLimit
+        exp_alerts:
+          - exp_labels: {job: flink, instance: 'taskmanager:9249', severity: warning}
+            exp_annotations:
+              summary: Flink metrics are approaching the per-target scrape limit
+              action: Inspect target sample counts and cardinality before the 20000-sample limit; do not disable the guard or reset application state.
+      - eval_time: 34s
+        alertname: TelemetryFlinkScrapeNearLimit
+        exp_alerts: []
+  - name: failed-scrape-is-unavailable-not-healthy-or-capacity-warning
+    interval: 2s
+    input_series:
+      - series: 'up{job="flink",instance="taskmanager:9249"}'
+        values: '0x10'
+      - series: 'scrape_samples_post_metric_relabeling{job="flink",instance="taskmanager:9249"}'
+        values: '20001x10'
+    alert_rule_test:
+      - eval_time: 6s
+        alertname: TelemetryTargetUnavailable
+        exp_alerts:
+          - exp_labels: {job: flink, instance: 'taskmanager:9249', severity: warning}
+            exp_annotations:
+              summary: A local telemetry metrics target is unavailable
+              action: Inspect the owned container and safe logs; preserve state and do not reset offsets.
+      - eval_time: 20s
+        alertname: TelemetryFlinkScrapeNearLimit
+        exp_alerts: []
+  - name: missing-target-does-not-become-zero-traffic
+    interval: 2s
+    input_series:
+      - series: 'up{job="flink",instance="jobmanager:9249"}'
+        values: '1x10'
+      - series: 'up{job="serving",instance="serving:9363"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 6s
+        alertname: TelemetryTargetMissing
+        exp_alerts:
+          - exp_labels: {job: flink, instance: 'taskmanager:9249', severity: warning}
+            exp_annotations:
+              summary: An expected local telemetry scrape target is missing
+              action: Check the loaded scrape configuration before interpreting empty panels.

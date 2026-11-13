@@ -1,0 +1,333 @@
+{
+  "uid": "flight-f09-overview",
+  "title": "Flight research - flight overview",
+  "tags": [
+    "restricted",
+    "historical",
+    "research"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "2025-08-21T11:40:00Z",
+    "to": "2025-08-21T12:30:00Z"
+  },
+  "timezone": "utc",
+  "templating": {
+    "list": [
+      {
+        "name": "vehicle",
+        "label": "Recording aircraft",
+        "type": "custom",
+        "query": "f09-research-vehicle",
+        "current": {
+          "selected": true,
+          "text": "f09-research-vehicle",
+          "value": "f09-research-vehicle"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "F09 recorded flight route (GPS, every 10th sample) and landing position",
+      "type": "geomap",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 16
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT vehicle_id, latitude_deg AS latitude, longitude_deg AS longitude FROM f09_flight_analytics_v1.gps_v1 WHERE latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY source_ordinal DESC LIMIT 1"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT vehicle_id, latitude_deg AS latitude, longitude_deg AS longitude FROM f09_flight_analytics_v1.gps_v1 WHERE source_ordinal % 10 = 0 AND latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY source_ordinal"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open recording",
+              "url": "/d/flight-f09-details/flight-detail?var-vehicle=${__data.fields.vehicle_id}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 39.301,
+          "lon": -0.6155,
+          "zoom": 15.9
+        },
+        "basemap": {
+          "type": "xyz",
+          "name": "No external tiles",
+          "config": {
+            "url": "http://127.0.0.1:1/{z}/{x}/{y}.png"
+          }
+        },
+        "layers": [
+          {
+            "type": "route",
+            "name": "Route",
+            "config": {
+              "style": {
+                "color": {
+                  "fixed": "#FF9830"
+                },
+                "opacity": 0.9,
+                "lineWidth": 2,
+                "size": {
+                  "fixed": 1
+                }
+              },
+              "arrow": 0
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": false
+          },
+          {
+            "type": "markers",
+            "name": "Last position",
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "#73BF69"
+                },
+                "size": {
+                  "fixed": 9
+                },
+                "opacity": 0.8
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": true,
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            }
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "controls": {
+          "showZoom": false,
+          "mouseWheelZoom": false,
+          "showAttribution": false
+        }
+      },
+      "description": "Historical F09 route from receiver-reported GPS, every 10th source ordinal, and the last recorded position. No map tiles are loaded."
+    },
+    {
+      "id": 2,
+      "title": "GPS ground speed (m/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT gps_utc AS time, ground_speed_m_s AS speed FROM f09_flight_analytics_v1.gps_v1 WHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL AND $__timeFilter(gps_utc) ORDER BY gps_utc"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "GPS altitude above mean sea level (m)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT gps_utc AS time, altitude_msl_m AS altitude FROM f09_flight_analytics_v1.gps_v1 WHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL AND $__timeFilter(gps_utc) ORDER BY gps_utc"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "title": "Battery voltage (V)",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.voltage_v, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "title": "Battery current (A)",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.current_a, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "Battery remaining fraction",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.remaining_fraction, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+# Overlay for the strictly local shared-namespace position experiment.
+services:
+  kafka:
+    ports: !override ["127.0.0.1:28133:8123", "127.0.0.1:28333:8333"]
+    networks: [default, live-source, access]
+  archive:
+    networks: !reset []
+    ports: !reset []
+    network_mode: service:kafka
+    depends_on: [kafka]
+  clickhouse:
+    networks: !reset []
+    ports: !reset []
+    network_mode: service:kafka
+    depends_on: [kafka]
+  collector:
+    extends: {file: live-position-path.yml, service: worker}
+    entrypoint: [python, -u, -B, -m, runtime.continuous.position_stream]
+    command: [collector, --config, /evidence/plan.json]
+    restart: "no"
+  position-store:
+    extends: {file: live-position-path.yml, service: worker}
+    environment:
+      PYTHONPATH: /deps:/s3deps:/workspace:/workspace/scripts
+    volumes:
+      - ${POSITION_S3_PACKAGES:?Set existing pure S3 dependency artifact}:/s3deps:ro
+      - ${POSITION_STORE_SOURCE_ROOT:-${M3_SOURCE_ROOT}}:/workspace:ro
+    entrypoint: [python, -u, -B, -m, runtime.continuous.position_stream]
+    command: [store, --config, /evidence/plan.json]
+    restart: "no"

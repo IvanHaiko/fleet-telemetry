@@ -1,0 +1,71 @@
+{
+  "acknowledged": [
+    {
+      "acknowledged": true,
+      "error_code": null,
+      "input_position": 0,
+      "offset": 0,
+      "partition": 0
+    },
+    {
+      "acknowledged": true,
+      "error_code": null,
+      "input_position": 1,
+      "offset": 1,
+      "partition": 0
+    },
+    {
+      "acknowledged": true,
+      "error_code": null,
+      "input_position": 2,
+      "offset": 2,
+      "partition": 0
+    }
+  ],
+  "client": "2.16.0",
+  "cluster_id": "synthetic-cluster",
+  "consumer_config": {
+    "auto.offset.reset": "error",
+    "bootstrap.servers": "127.0.0.1:19092",
+    "enable.auto.commit": false,
+    "enable.auto.offset.store": false,
+    "group.id": "m2-audit-fixture",
+    "group.protocol": "classic",
+    "socket.timeout.ms": 10000
+  },
+  "end_offset": 3,
+  "events_file_sha256": "0d1e1579d7d6b711477569b41ed5c2b10b7be645adabf8da2ee0d44799f0da3b",
+  "experiment_id": "audit-fixture",
+  "librdkafka": "2.16.0",
+  "observed": [
+    {
+      "event_id": "sha256:69bab69c2d17a4b26fe106cd20feaf128a70f9699a146eb28e36b607d05df760",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 0,
+      "partition": 0,
+      "value_sha256": "74be7fd002702ad0fd00997da064521d15ee65024b8bffa790a1ec3229a75bb1"
+    },
+    {
+      "event_id": "sha256:d1d0b623e9c088362c8299ead337287d86bc81a2c6bfaa9d612b32b6403ac70d",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 1,
+      "partition": 0,
+      "value_sha256": "238603eb90eb29f8c5de7020153f3e3a830c0caeade9ccd5ff91e5ee35078e09"
+    },
+    {
+      "event_id": "sha256:b487b5e101415503c758accb6c4aceb1e82f132ef410ccb6bab5a46ae8c4bc4b",
+      "key_sha256": "720a3fcbb80d8a82d54a28e1ac4b85c9ca08528fba4b8b997a6e5b1613742d4a",
+      "offset": 2,
+      "partition": 0,
+      "value_sha256": "5aada77a903e8a61b14d5c2e5c22fbe64ca853e5d8012421d9ea3848a5538e8b"
+    }
+  ],
+  "pending": 0,
+  "receipt_version": "kafka-probe-receipt-v1",
+  "retention_scope": "single-local-replica",
+  "start_committed_offset": 0,
+  "start_offset": 0,
+  "status": "observed_before_commit",
+  "topic": "m2.audit-fixture.telemetry.canonical.v1",
+  "topic_id": "synthetic-topic-id"
+}

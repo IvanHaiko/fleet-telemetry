@@ -1,0 +1,211 @@
+{
+  "uid": "flight-f09",
+  "title": "Flight research - fleet",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "utc",
+  "refresh": "",
+  "tags": [
+    "restricted",
+    "historical",
+    "research"
+  ],
+  "time": {
+    "from": "2025-08-21T11:40:00Z",
+    "to": "2025-08-21T12:30:00Z"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Historical research data",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Restricted F09 research recording. Positions are historical, not live aircraft. GPS UTC is receiver-reported and is not an accepted physical measurement-time mapping. The source contains 15 dropout markers. The last recorded marker links to its recording. External map tiles are disabled. The bundled offline country outlines are coarse; streets and terrain are unavailable. Route dots show every 50th valid source ordinal; intermediate positions are not shown."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Last recorded position \u2014 click marker",
+      "type": "geomap",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 16,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT vehicle_id, latitude_deg AS latitude, longitude_deg AS longitude FROM f09_flight_analytics_v1.gps_v1 WHERE latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY source_ordinal DESC LIMIT 1"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT vehicle_id, latitude_deg AS latitude, longitude_deg AS longitude FROM f09_flight_analytics_v1.gps_v1 WHERE source_ordinal % 50 = 0 AND latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY source_ordinal"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open recording",
+              "url": "/d/flight-f09-details/flight-detail?var-vehicle=${__data.fields.vehicle_id}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 2
+        },
+        "basemap": {
+          "type": "xyz",
+          "name": "No external tiles",
+          "config": {
+            "url": "http://127.0.0.1:1/{z}/{x}/{y}.png"
+          }
+        },
+        "layers": [
+          {
+            "name": "Offline country boundaries",
+            "type": "geojson",
+            "tooltip": false,
+            "opacity": 1,
+            "config": {
+              "src": "public/maps/countries.geojson",
+              "rules": [],
+              "style": {
+                "color": {
+                  "fixed": "#5794F2"
+                },
+                "opacity": 0.2,
+                "size": {
+                  "fixed": 2
+                }
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Sampled historic route (1 in 50)",
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "tooltip": false,
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "orange"
+                },
+                "size": {
+                  "fixed": 3
+                },
+                "opacity": 0.55
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Last position",
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "blue"
+                },
+                "size": {
+                  "fixed": 12
+                },
+                "opacity": 0.8
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": true,
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            }
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Recorded aircraft",
+      "type": "table",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT vehicle_id, count() AS gps_records, toString(max(gps_utc)) AS last_reported_gps_utc FROM f09_flight_analytics_v1.gps_v1 GROUP BY vehicle_id"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open recording",
+              "url": "/d/flight-f09-details/flight-detail?var-vehicle=${__data.fields.vehicle_id}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

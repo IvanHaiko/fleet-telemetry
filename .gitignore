@@ -1,0 +1,66 @@
+.venv/
+.uv-cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.local-discovery/
+
+# Local coding-assistant instructions and configuration.
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+GEMINI.md
+SKILL.md
+.agents/
+.codex/
+.claude/
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+
+# Local credentials and private configuration.
+.env
+.env.*
+!.env.example
+!.env.sample
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime evidence and infrastructure state stay local.
+*.log
+*.ulg
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Generated packages, editor scratch and OS metadata.
+/build/
+/dist/
+*.egg-info/
+*.tmp
+*.bak
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local exports, database files and captured media belong outside source.
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.sqlite
+*.sqlite3
+*.pcap
+*.pcapng

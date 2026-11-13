@@ -1,0 +1,567 @@
+{
+  "uid": "recording-inspection",
+  "title": "Telemetry - supported recordings",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "utc",
+  "tags": [
+    "restricted",
+    "historical",
+    "research"
+  ],
+  "timepicker": {
+    "hidden": true
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "recording",
+        "label": "Recording",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "flight-clickhouse"
+        },
+        "query": {
+          "editorType": "sql",
+          "rawSql": "SELECT DISTINCT recording_id AS __value, concat(substring(profile, 1, 3), ' - historical recording') AS __text FROM recording_views_v1.recordings ORDER BY __text SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        },
+        "definition": "SELECT DISTINCT recording_id AS __value, concat(substring(profile, 1, 3), ' - historical recording') AS __text FROM recording_views_v1.recordings ORDER BY __text SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "native_us",
+        "label": "Native time limit (us; 0 = last recorded)",
+        "type": "textbox",
+        "query": "0",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "text": "0",
+            "value": "0",
+            "selected": true
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Historical recording inspection",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Select a recording, then enter an unsigned native boot-time limit in microseconds (0 selects its last recorded observation). All panels use that recording and limit. These are historical observations, not current aircraft state or live connection status. F09 uses GPS observations; F01 uses commander observations because its GPS stream is empty and battery stream is absent. Missing values remain Unknown. Battery and state retain separate age and recording-gap rules; a matched value does not prove physical simultaneity or complete source coverage. Native clocks are not validated UTC. The map has no position for a recording without GPS data. Source pseudonyms identify recordings, not proven cross-log aircraft identities. No flight phase, duration or safety verdict is inferred."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Selected recording and available streams",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT vehicle_id AS recording_vehicle, records AS observed_rows, first_native_us/1000000.0 AS first_boot_seconds, last_native_us/1000000.0 AS last_boot_seconds, JSONExtractString(capabilities_json,'gps') AS GPS, JSONExtractString(capabilities_json,'battery') AS battery, JSONExtractString(capabilities_json,'state') AS recorded_state FROM (SELECT DISTINCT * FROM recording_views_v1.recordings WHERE recording_id=${recording:sqlstring}) SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "recording_vehicle"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Recording"
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_rows"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Records"
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "First boot s"
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last boot s"
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GPS"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "GPS"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "battery"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Battery"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "recorded_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "State"
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Recorded values at native-time limit",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 16
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "WITH snapshot AS (SELECT DISTINCT * FROM recording_views_v1.observations WHERE recording_id = ${recording:sqlstring} AND (toUInt64OrNull(${native_us:sqlstring}) = 0 OR native_timestamp_us <= toUInt64OrNull(${native_us:sqlstring})) AND recording_id IN (SELECT recording_id FROM recording_views_v1.recordings) ORDER BY observation_ordinal DESC LIMIT 1) SELECT observation_ordinal AS ordinal, native_timestamp_us AS boot_us, tupleElement(reading,2) AS field, tupleElement(reading,3) AS value, tupleElement(reading,4) AS unit, tupleElement(reading,5) AS association_status, if(isNull(tupleElement(reading,3)), 'missing', 'available') AS value_status, tupleElement(reading,6) AS age_seconds FROM snapshot ARRAY JOIN [tuple(0, 'latitude_deg', latitude_deg, 'deg', gps_status, CAST(NULL AS Nullable(Float64))), tuple(1, 'longitude_deg', longitude_deg, 'deg', gps_status, CAST(NULL AS Nullable(Float64))), tuple(2, 'altitude_msl_m', altitude_msl_m, 'm', gps_status, CAST(NULL AS Nullable(Float64))), tuple(3, 'ground_speed_m_s', ground_speed_m_s, 'm/s', gps_status, CAST(NULL AS Nullable(Float64))), tuple(4, 'fix_type', fix_type, 'code', gps_status, CAST(NULL AS Nullable(Float64))), tuple(5, 'voltage_v', voltage_v, 'V', battery_status, battery_age_us/1000000.0), tuple(6, 'current_a', current_a, 'A', battery_status, battery_age_us/1000000.0), tuple(7, 'remaining_fraction', remaining_fraction, 'fraction', battery_status, battery_age_us/1000000.0), tuple(8, 'landed', landed, 'flag', land_status, land_age_us/1000000.0), tuple(9, 'ground_contact', ground_contact, 'flag', land_status, land_age_us/1000000.0), tuple(10, 'maybe_landed', maybe_landed, 'flag', land_status, land_age_us/1000000.0), tuple(11, 'arming_state', arming_state, 'code', commander_status, commander_age_us/1000000.0), tuple(12, 'nav_state', nav_state, 'code', commander_status, commander_age_us/1000000.0), tuple(13, 'failsafe', failsafe, 'flag', commander_status, commander_age_us/1000000.0)] AS reading ORDER BY tupleElement(reading,1) SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Record #"
+              },
+              {
+                "id": "custom.width",
+                "value": 75
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "boot_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Boot us"
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "field"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Field"
+              },
+              {
+                "id": "custom.width",
+                "value": 165
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Value"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unit"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Unit"
+              },
+              {
+                "id": "custom.width",
+                "value": 65
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "association_status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Association"
+              },
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value_status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Value status"
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Age (s)"
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Recorded position, when available",
+      "type": "geomap",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT vehicle_id, latitude_deg AS latitude, longitude_deg AS longitude FROM (SELECT DISTINCT * FROM recording_views_v1.observations WHERE recording_id = ${recording:sqlstring} AND (toUInt64OrNull(${native_us:sqlstring}) = 0 OR native_timestamp_us <= toUInt64OrNull(${native_us:sqlstring})) AND recording_id IN (SELECT recording_id FROM recording_views_v1.recordings)) AS o INNER JOIN (SELECT DISTINCT recording_id,vehicle_id FROM recording_views_v1.recordings) AS r USING(recording_id) WHERE latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY observation_ordinal DESC LIMIT 1 SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT latitude_deg AS latitude, longitude_deg AS longitude FROM (SELECT DISTINCT * FROM recording_views_v1.observations WHERE recording_id = ${recording:sqlstring} AND (toUInt64OrNull(${native_us:sqlstring}) = 0 OR native_timestamp_us <= toUInt64OrNull(${native_us:sqlstring})) AND recording_id IN (SELECT recording_id FROM recording_views_v1.recordings)) WHERE observation_ordinal % 50=0 AND latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL ORDER BY observation_ordinal SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "view": {
+          "id": "coords",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 2
+        },
+        "basemap": {
+          "type": "xyz",
+          "name": "No external tiles",
+          "config": {
+            "url": "http://127.0.0.1:1/{z}/{x}/{y}.png"
+          }
+        },
+        "layers": [
+          {
+            "name": "Offline country boundaries",
+            "type": "geojson",
+            "tooltip": false,
+            "opacity": 1,
+            "config": {
+              "src": "public/maps/countries.geojson",
+              "rules": [],
+              "style": {
+                "color": {
+                  "fixed": "#5794F2"
+                },
+                "opacity": 0.2,
+                "size": {
+                  "fixed": 2
+                }
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Sampled historic route (1 in 50)",
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "tooltip": false,
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "orange"
+                },
+                "size": {
+                  "fixed": 3
+                },
+                "opacity": 0.55
+              }
+            }
+          },
+          {
+            "type": "markers",
+            "name": "Last position",
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": {
+                  "fixed": "blue"
+                },
+                "size": {
+                  "fixed": 12
+                },
+                "opacity": 0.8
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "latitude",
+              "longitude": "longitude"
+            },
+            "tooltip": true,
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            }
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Last 100 recorded observations before native-time limit",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT observation_ordinal, native_timestamp_us, observation_stream, battery_status, land_status, commander_status, arming_state, nav_state, failsafe FROM (SELECT DISTINCT * FROM recording_views_v1.observations WHERE recording_id = ${recording:sqlstring} AND (toUInt64OrNull(${native_us:sqlstring}) = 0 OR native_timestamp_us <= toUInt64OrNull(${native_us:sqlstring})) AND recording_id IN (SELECT recording_id FROM recording_views_v1.recordings)) ORDER BY observation_ordinal DESC LIMIT 100 SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=50000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "reference": "Direct event-id-v1 recipe over pinned authored fixture bytes; generated without importing normalization code.",
+  "source_log_id": "sha256:ec8b91945ad7e6e12cb592a7a999de21f1abc4a4469638da76f69aaebbfc065f",
+  "vehicle_id": "demo-ulog-policy-001",
+  "source_type": "synthetic",
+  "source_stream": "battery_status:0",
+  "normalization_version": "ulog-battery-v1",
+  "accepted": [
+    {
+      "case_id": "connected_discharge",
+      "source_record_index": 0,
+      "event_id": "sha256:713eade0864bd694487643955a7affd68eaedd2ebc1ad5525309552bbfab01c1"
+    },
+    {
+      "case_id": "connected_unknown_current",
+      "source_record_index": 1,
+      "event_id": "sha256:278122cc12e642d622f779a7c06b61125ca9d7ae1a863e2034fdf895f41e54c9"
+    },
+    {
+      "case_id": "connected_zero_current",
+      "source_record_index": 2,
+      "event_id": "sha256:707351b475754725c2c7264174c4ed59739a213998cacafc64d501e55e1382dd"
+    },
+    {
+      "case_id": "disconnected_valid",
+      "source_record_index": 5,
+      "event_id": "sha256:85a7b71c34800e8262795140835c800e0316207365caad1e7bccae14e5c765a5"
+    },
+    {
+      "case_id": "disconnected_unknown_current",
+      "source_record_index": 6,
+      "event_id": "sha256:1c687d4417e20ba2596c1c560eabf919c7310b571bcc386646b349bc70ed2265"
+    },
+    {
+      "case_id": "disconnected_unknown_remaining",
+      "source_record_index": 11,
+      "event_id": "sha256:aab7275f191ab1cc33e6e0fabb020493fb9df6447305852368dcbd864217f738"
+    },
+    {
+      "case_id": "disconnected_both_optional_unknown",
+      "source_record_index": 12,
+      "event_id": "sha256:e8e8709bce3472ef46221b55afc4fac1847296c20f897bdd495ff3c732a43150"
+    },
+    {
+      "case_id": "connected_empty_remaining",
+      "source_record_index": 13,
+      "event_id": "sha256:c119534bbe78dd936139c3ef2eff5c9264de9100c7742cabd1f33dcec4dc3959"
+    },
+    {
+      "case_id": "connected_negative_zero_current",
+      "source_record_index": 21,
+      "event_id": "sha256:6cee6718b44b16080198384a28824528388637da1f3eda27e5447e63611a54b6"
+    }
+  ]
+}

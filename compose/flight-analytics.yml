@@ -1,0 +1,51 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.34.13
+    pull_policy: never
+    environment:
+      CLICKHOUSE_USER: flight_admin
+      CLICKHOUSE_PASSWORD: ${FLIGHT_CH_ADMIN_PASSWORD:?Set FLIGHT_CH_ADMIN_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: ["127.0.0.1:28132:8123"]
+    volumes: ["flight-clickhouse:/var/lib/clickhouse"]
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 384
+    networks: [flight-internal, flight-access]
+  grafana:
+    image: grafana/grafana:13.2.4@sha256:7b22f3edf947329d75eba7a62d9f6ea1ac1e786736813ef7a98cfb275a52e49b
+    pull_policy: never
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_USER: flight_admin
+      GF_SECURITY_ADMIN_PASSWORD: ${FLIGHT_GRAFANA_PASSWORD:?Set FLIGHT_GRAFANA_PASSWORD}
+      FLIGHT_CH_READER_PASSWORD: ${FLIGHT_CH_READER_PASSWORD:?Set FLIGHT_CH_READER_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SERVER_ROOT_URL: http://127.0.0.1:13002/
+    ports: ["127.0.0.1:13002:3000"]
+    volumes:
+      - "flight-grafana:/var/lib/grafana"
+      - "../.local-discovery/gold-grafana-20261104/plugins/grafana-clickhouse-datasource:/var/lib/grafana/plugins/grafana-clickhouse-datasource:ro"
+      - "../runtime/flight_analytics/provisioning:/etc/grafana/provisioning:ro"
+      - "../runtime/flight_analytics/dashboards:/var/lib/grafana/dashboards:ro"
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 256
+    depends_on: [clickhouse]
+    networks: [flight-internal, flight-access]
+networks:
+  flight-internal:
+    internal: true
+  flight-access:
+    ipam:
+      config:
+        - subnet: 10.254.246.0/28
+volumes:
+  flight-clickhouse:
+  flight-grafana:
+

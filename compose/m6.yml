@@ -1,0 +1,100 @@
+# Combine with m3.yml and m4-serving.yml in a fresh project.
+services:
+  jobmanager:
+    entrypoint: [/bin/bash, /opt/observability/flink-entrypoint.sh]
+    volumes:
+      - ../runtime/observability/flink-reporter.yaml:/opt/observability/flink-reporter.yaml:ro
+      - ../runtime/observability/flink-entrypoint.sh:/opt/observability/flink-entrypoint.sh:ro
+    networks: [default, monitoring]
+  taskmanager:
+    entrypoint: [/bin/bash, /opt/observability/flink-entrypoint.sh]
+    volumes:
+      - ../runtime/observability/flink-reporter.yaml:/opt/observability/flink-reporter.yaml:ro
+      - ../runtime/observability/flink-entrypoint.sh:/opt/observability/flink-entrypoint.sh:ro
+    networks: [default, monitoring]
+  serving:
+    volumes:
+      - ../runtime/observability/clickhouse-metrics.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+    networks: [serving-private, monitoring]
+  prometheus:
+    image: prom/prometheus:v3.13.5@sha256:dc30314819e04a1a3d18d0b37eaa9c8e4e18f33f026e3e2d81bf127c7cddcd55
+    platform: linux/amd64
+    pull_policy: never
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2h
+      - --storage.tsdb.retention.size=256MB
+      - --query.max-samples=100000
+      - --query.max-concurrency=4
+      - --web.listen-address=0.0.0.0:9090
+      - --log.format=json
+    ports: ["127.0.0.1:19090:9090"]
+    volumes:
+      - prometheus-clean-data:/prometheus
+      - ../runtime/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../runtime/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,uid=65534,gid=65534"]
+    networks: [monitoring, monitoring-ui]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  grafana:
+    image: grafana/grafana:13.2.4@sha256:7b22f3edf947329d75eba7a62d9f6ea1ac1e786736813ef7a98cfb275a52e49b
+    platform: linux/amd64
+    pull_policy: never
+    user: "472:472"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    cpus: 0.5
+    pids_limit: 128
+    environment:
+      GOMEMLIMIT: 384MiB
+      GOMAXPROCS: "1"
+      GF_SECURITY_ADMIN_USER: maintainer
+      GF_SECURITY_ADMIN_PASSWORD: ${M6_GRAFANA_PASSWORD:?Set a private local password}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+      GF_LOG_CONSOLE_FORMAT: json
+      GF_SECURITY_COOKIE_SAMESITE: strict
+    ports: ["127.0.0.1:13000:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../runtime/observability/provisioning:/etc/grafana/provisioning:ro
+      - ../runtime/observability/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,uid=472,gid=472"]
+    networks: [monitoring, monitoring-ui]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+volumes:
+  prometheus-clean-data:
+  grafana-data:
+networks:
+  monitoring-ui:
+    ipam:
+      config:
+        - subnet: ${M6_UI_SUBNET:-10.254.241.208/28}
+  monitoring:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${M6_MONITORING_SUBNET:-10.254.241.176/28}
+  default:
+    ipam:
+      config:
+        - subnet: ${M6_RUNTIME_SUBNET:-10.254.241.160/28}

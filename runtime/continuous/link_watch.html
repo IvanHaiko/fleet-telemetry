@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Fleet connection status</title>
+<style>
+body{font:18px system-ui;background:#101722;color:#e9edf4;max-width:960px;margin:40px auto;padding:16px}
+input,button{font:inherit;padding:8px}table{width:100%;border-collapse:collapse;margin-top:24px}
+td,th{text-align:left;padding:12px;border-bottom:1px solid #344054}
+.connected,.recovered{color:#79e5a0}.lost{color:#ff807d}.unknown{color:#f2ca75}
+</style>
+<h1>Fleet connection status</h1>
+<p>Live heartbeat monitor. No measurements or flight control.</p>
+<form id="login"><label>Reader token <input id="token" type="password" required autocomplete="off"></label>
+<button>Connect</button></form>
+<p id="health" role="status">Monitor unavailable — connection status unknown</p>
+<table><thead><tr><th>Vehicle</th><th>Connection</th><th>Last heartbeat age</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+let token = '', generation = 0, epoch = '', monitorConnected = false, everConnected = false, monitorLost = false, recoveredUntil = 0;
+const previous = new Map(), resumedUntil = new Map();
+const health = document.querySelector('#health'), rows = document.querySelector('#rows');
+function unavailable() {
+  monitorConnected = false; monitorLost = true; previous.clear(); resumedUntil.clear();
+  health.textContent = 'Monitor unavailable — connection status unknown';
+  for (const row of rows.children) {
+    row.children[1].textContent = 'Unknown'; row.children[1].className = 'unknown';
+    row.children[2].textContent = 'unavailable';
+  }
+}
+document.querySelector('#login').onsubmit = event => {
+  event.preventDefault(); token = document.querySelector('#token').value;
+  document.querySelector('#token').value = ''; generation++; poll(generation);
+};
+async function poll(version) {
+  if (version !== generation) return;
+  try {
+    const response = await fetch('/v1/links', {
+      headers: {Authorization: 'Bearer ' + token}, cache: 'no-store',
+      signal: AbortSignal.timeout(500)
+    });
+    if (!response.ok) throw Error('unavailable');
+    const state = await response.json();
+    if (version !== generation) return;
+    if(state.format_version!=='live-link-state-v1'||typeof state.monitor_ok!=='boolean'||!Array.isArray(state.vehicles)||!state.vehicles.length||state.vehicles.length>1024||typeof state.receiver_epoch!=='string')throw Error('invalid state');
+    if(!state.monitor_ok){unavailable();health.textContent='Monitor delayed — connection status unknown';}
+    const now=performance.now();
+    if(state.monitor_ok&&!monitorConnected&&monitorLost&&everConnected)recoveredUntil=now+3000;
+    if(state.receiver_epoch!==epoch){previous.clear();resumedUntil.clear();epoch=state.receiver_epoch;}
+    monitorConnected=state.monitor_ok;if(state.monitor_ok)everConnected=true;
+    if(state.monitor_ok)health.textContent=(now<recoveredUntil?'Monitor reconnected':'Monitor healthy')+' · timeout '+state.timeout_seconds+' seconds';
+    const seen=new Set();
+    rows.replaceChildren(...state.vehicles.map(vehicle => {
+      if(typeof vehicle.vehicle_id!=='string'||seen.has(vehicle.vehicle_id)||!['unknown','connected','lost'].includes(vehicle.status))throw Error('invalid vehicle');
+      seen.add(vehicle.vehicle_id);
+      const status=state.monitor_ok?vehicle.status:'unknown';
+      if(status==='connected'&&previous.get(vehicle.vehicle_id)==='lost')resumedUntil.set(vehicle.vehicle_id,now+3000);
+      previous.set(vehicle.vehicle_id,status);
+      const recovered=status==='connected'&&now<(resumedUntil.get(vehicle.vehicle_id)||0);
+      const tr = document.createElement('tr');
+      [vehicle.vehicle_id, recovered?'Reconnected':status==='lost'?'Connection lost':status==='connected'?'Connected':'Unknown',
+       !state.monitor_ok?'unknown':vehicle.age_seconds === null ? 'never observed' : vehicle.age_seconds.toFixed(1) + ' s'
+      ].forEach((value, i) => {
+        const td = document.createElement('td'); td.textContent = value;
+        if (i === 1) td.className = recovered?'recovered':status; tr.append(td);
+      }); return tr;
+    }));
+    for(const id of previous.keys())if(!seen.has(id)){previous.delete(id);resumedUntil.delete(id);}
+  } catch { if (version === generation) unavailable(); }
+  if (version === generation) setTimeout(() => poll(version), 250);
+}
+// A suspended browser must not retain a green status when it becomes visible.
+document.addEventListener('visibilitychange', () => { unavailable(); });
+</script></html>

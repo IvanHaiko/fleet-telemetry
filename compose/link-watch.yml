@@ -1,0 +1,22 @@
+# Standalone local receiver; no historical volumes or Kafka/SQL dependencies.
+services:
+  link-watch:
+    image: fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956
+    platform: linux/amd64
+    pull_policy: never
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 32
+    entrypoint: [python, -B, -m, runtime.continuous.link_watch]
+    command: [--config, /run/secrets/link-watch.json, --host, 0.0.0.0]
+    ports: ["127.0.0.1:18768:18768"]
+    volumes:
+      - ..:/workspace:ro
+      - ${FLEET_LINK_CONFIG:?Set a private absolute link-watch config path}:/run/secrets/link-watch.json:ro
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}

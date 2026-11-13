@@ -1,0 +1,31 @@
+{
+  "job_version": "bounded-conversion-v1",
+  "mode": "synthetic",
+  "input": {
+    "path": "m5-idle-battery-v1.json",
+    "source_log_id": "sha256:8cd3c23700dfbbed1c08cd2da8d25dcfee588abeaba9f76196af7eeb6271b9c0",
+    "size_bytes": 1063
+  },
+  "manifest": {
+    "source_manifest_id": "m5-idle-battery-manifest-v1",
+    "source_log_id": "sha256:8cd3c23700dfbbed1c08cd2da8d25dcfee588abeaba9f76196af7eeb6271b9c0",
+    "vehicle_id": "demo-vehicle-001",
+    "source_stream": "battery_status:0",
+    "native_timestamp_min_us": 0,
+    "native_timestamp_max_us": 622000000,
+    "clock_anchor": {
+      "native_anchor_us": 0,
+      "utc_anchor": "2026-01-01T12:00:00.000000Z",
+      "anchor_uncertainty_us": null
+    },
+    "fixture_specification": "m5-idle-battery-v1.json",
+    "retrieved_at": "2026-10-19T00:00:00.000000Z",
+    "license_evidence": "Original project-authored synthetic values; no third-party log derivative.",
+    "privacy_review": "Synthetic pseudonym and values; no real vehicle or coordinates."
+  },
+  "delivery": {
+    "dataset_run_id": "demo-m5-idle-001",
+    "ingest_timestamp": "2026-10-19T00:00:00.000000Z",
+    "replay_mode": "synthetic"
+  }
+}

@@ -1,0 +1,70 @@
+# Bounded live-source integration; all volumes belong to this fresh project.
+services:
+  kafka:
+    extends: {file: m3.yml, service: kafka}
+    ports: !reset []
+    environment:
+      KAFKA_CLUSTER_ID: ${LIVE_POSITION_CLUSTER_ID:?Set a fresh cluster ID}
+    networks: [default, live-source]
+  jobmanager:
+    extends: {file: m3.yml, service: jobmanager}
+    ports: !override ["127.0.0.1:28081:8081"]
+    volumes:
+      - ${LIVE_POSITION_EVIDENCE:?Set private evidence directory}:/evidence
+    networks: [default, access]
+  taskmanager:
+    extends: {file: m3.yml, service: taskmanager}
+    pids_limit: 1024
+    networks: [default]
+  archive:
+    extends: {file: m4-storage.yml, service: archive}
+    ports: !override ["127.0.0.1:28333:8333"]
+    networks: !override [archive-private, access]
+  clickhouse:
+    extends: {file: flight-analytics.yml, service: clickhouse}
+    environment:
+      CLICKHOUSE_USER: position_admin
+      CLICKHOUSE_PASSWORD: ${LIVE_POSITION_CH_PASSWORD:?Set private SQL admin password}
+    ports: !override ["127.0.0.1:28133:8123"]
+    networks: !override [default, access]
+  worker:
+    profiles: [worker]
+    image: python@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
+    pull_policy: never
+    working_dir: /workspace
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 32
+    network_mode: service:kafka
+    environment:
+      PYTHONPATH: /deps:/workspace:/workspace/scripts
+      PYTHONDONTWRITEBYTECODE: "1"
+    entrypoint: [python, -u, -B, -m, runtime.continuous.live_position_worker]
+    volumes:
+      - ${M3_SOURCE_ROOT:?Set immutable code export}:/workspace:ro
+      - ${LIVE_POSITION_PACKAGES:?Set existing native dependency artifact}:/deps:ro
+      - ${LIVE_POSITION_EVIDENCE:?Set private evidence directory}:/evidence
+volumes:
+  state:
+  kafka-data:
+  archive-data:
+  flight-clickhouse:
+networks:
+  default:
+    internal: true
+    ipam:
+      config: [{subnet: "10.254.248.0/28"}]
+  archive-private:
+    internal: true
+    ipam:
+      config: [{subnet: "10.254.248.16/28"}]
+  access:
+    ipam:
+      config: [{subnet: "10.254.248.32/28"}]
+  live-source:
+    external: true
+    name: fleetmavlink20261104_live-internal

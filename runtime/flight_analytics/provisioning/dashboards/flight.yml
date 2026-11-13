@@ -1,0 +1,18 @@
+apiVersion: 1
+providers:
+  - name: flight-research
+    orgId: 1
+    folder: Flight research
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards
+  - name: fleet-operations
+    orgId: 1
+    folder: Fleet operations
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/operations

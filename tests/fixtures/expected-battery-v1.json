@@ -1,0 +1,32 @@
+{
+  "source_log_id": "sha256:a023177a0240f8202effe5ec8fa0f301aea8a09e73c25635311d1af370780ffc",
+  "accepted": [
+    {
+      "event_id": "sha256:69bab69c2d17a4b26fe106cd20feaf128a70f9699a146eb28e36b607d05df760",
+      "source_record_index": 0,
+      "native_timestamp_us": 1234567,
+      "source_timestamp": "2026-01-01T12:00:01.234567Z",
+      "payload": {"voltage_v": 15.8, "current_a": 4.2, "remaining_fraction": 0.72},
+      "quality_flags": ["synthetic_time_anchor"]
+    },
+    {
+      "event_id": "sha256:d1d0b623e9c088362c8299ead337287d86bc81a2c6bfaa9d612b32b6403ac70d",
+      "source_record_index": 2,
+      "native_timestamp_us": 1234569,
+      "source_timestamp": "2026-01-01T12:00:01.234569Z",
+      "payload": {"voltage_v": 16.0, "current_a": -1.25, "remaining_fraction": null},
+      "quality_flags": ["source_value_missing", "synthetic_time_anchor"]
+    },
+    {
+      "event_id": "sha256:b487b5e101415503c758accb6c4aceb1e82f132ef410ccb6bab5a46ae8c4bc4b",
+      "source_record_index": 3,
+      "native_timestamp_us": 1234570,
+      "source_timestamp": "2026-01-01T12:00:01.234570Z",
+      "payload": {"voltage_v": 0.0, "current_a": null, "remaining_fraction": null},
+      "quality_flags": ["source_value_missing", "synthetic_time_anchor"]
+    }
+  ],
+  "rejected": [
+    {"source_record_index": 1, "reason_code": "invalid_unit_value", "field": "voltage_mv"}
+  ]
+}

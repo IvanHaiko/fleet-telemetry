@@ -1,0 +1,15 @@
+{
+  "confluent_kafka-2.16.0.tar.gz": "8268b8763a0c0503a99a55a9cac0132ed010932135d4222f67e2c804d1597508",
+  "confluent_kafka-2.16.0-cp313-cp313-win_amd64.whl": "3b00c1ea376d80288b03f36389d603c3d9fef9f62a5e180f48565ac1c6368004",
+  "zig.tar.xz": "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026",
+  "librdkafka/rdkafka.h": "09f5d9bf81240b985d1adb83d1cb4e84faa7d0591de01478b2a47e776550cd1a",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/Admin.c": "f09e7b313b4b982edb7c8370ae8528b37b9769b50493e50af543f51aa00a7b0b",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/AdminTypes.c": "5af84426bbae5ab20a338034a6f941033e826693fa109652380d9ce6eacc4bfa",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/Consumer.c": "8d9f0a67bb9ed31e51ec90e3e2db00f1a9fb4bb7ff5a5fade1afbc36346a7463",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/Metadata.c": "4a76ed45f5a8464f4bf55da27102e88aed4344d7f754da5104c588565e715492",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/Producer.c": "df251100c54657c60370bd775c470a267b323d4f0868f0dbcf7fd23941166c20",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/ShareConsumer.c": "7f1206770b2fefa323bd7f9b65d6496ee1c329425007515cbd744516fbc65c2f",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/confluent_kafka.c": "09a6cdf3447b0ae654dbaccc4ec3714b831a9aae1539d121435bf3fdec8811c1",
+  "sdk-source/confluent_kafka-2.16.0/src/confluent_kafka/src/confluent_kafka.h": "3f48cc4f879564f7f6fe01b8f321bbb5ce1efd3adcdaad3a759bcaff99538f22",
+  "zig/zig-x86_64-linux-0.17.0/zig": "7c61539af19fa4082c94848f1c2b57b89e76dc6cfd5bd4c57764c3caf8f82272"
+}

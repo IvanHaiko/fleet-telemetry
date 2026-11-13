@@ -1,0 +1,24 @@
+groups:
+  - name: local-telemetry
+    rules:
+      - alert: TelemetryTargetUnavailable
+        expr: up{job=~"flink|serving"} == 0
+        for: 4s
+        labels: {severity: warning}
+        annotations:
+          summary: A local telemetry metrics target is unavailable
+          action: Inspect the owned container and safe logs; preserve state and do not reset offsets.
+      - alert: TelemetryTargetMissing
+        expr: absent(up{job="flink",instance="jobmanager:9249"}) or absent(up{job="flink",instance="taskmanager:9249"}) or absent(up{job="serving",instance="serving:9363"})
+        for: 4s
+        labels: {severity: warning}
+        annotations:
+          summary: An expected local telemetry scrape target is missing
+          action: Check the loaded scrape configuration before interpreting empty panels.
+      - alert: TelemetryFlinkScrapeNearLimit
+        expr: (scrape_samples_post_metric_relabeling{job="flink"} > 16000) and on(job, instance) (up{job="flink"} == 1)
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: Flink metrics are approaching the per-target scrape limit
+          action: Inspect target sample counts and cardinality before the 20000-sample limit; do not disable the guard or reset application state.

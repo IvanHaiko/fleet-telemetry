@@ -1,0 +1,31 @@
+{
+  "job_version": "bounded-conversion-v1",
+  "mode": "synthetic",
+  "input": {
+    "path": "synthetic-battery-v1.json",
+    "source_log_id": "sha256:a023177a0240f8202effe5ec8fa0f301aea8a09e73c25635311d1af370780ffc",
+    "size_bytes": 721
+  },
+  "manifest": {
+    "source_manifest_id": "synthetic-battery-manifest-v1",
+    "source_log_id": "sha256:a023177a0240f8202effe5ec8fa0f301aea8a09e73c25635311d1af370780ffc",
+    "vehicle_id": "demo-vehicle-001",
+    "source_stream": "battery_status:0",
+    "native_timestamp_min_us": 0,
+    "native_timestamp_max_us": 2000000,
+    "clock_anchor": {
+      "native_anchor_us": 0,
+      "utc_anchor": "2026-01-01T12:00:00.000000Z",
+      "anchor_uncertainty_us": null
+    },
+    "fixture_specification": "synthetic-battery-v1.json",
+    "retrieved_at": "2026-10-19T00:00:00.000000Z",
+    "license_evidence": "Original project-authored synthetic values; no third-party log derivative.",
+    "privacy_review": "Synthetic pseudonym and values; no real vehicle or coordinates."
+  },
+  "delivery": {
+    "dataset_run_id": "demo-synthetic-001",
+    "ingest_timestamp": "2026-10-19T00:00:00.000000Z",
+    "replay_mode": "synthetic"
+  }
+}

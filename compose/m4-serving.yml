@@ -1,0 +1,42 @@
+services:
+  serving:
+    image: clickhouse/clickhouse-server:26.8.34.13@sha256:ed334fbfae35c4f9fa328534821280b59d1c4677df8f3cf0e950cf7501a25bde
+    pull_policy: never
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 1.0
+    pids_limit: 256
+    stop_grace_period: 30s
+    environment:
+      CLICKHOUSE_USER: bootstrap
+      CLICKHOUSE_PASSWORD: ${M4_SERVING_PASSWORD:?Set a private experiment password}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:${M4_SERVING_PORT:-18123}:8123"
+    volumes:
+      - serving-data:/var/lib/clickhouse
+      - type: bind
+        source: ../runtime/clickhouse/limits.xml
+        target: /etc/clickhouse-server/config.d/limits.xml
+        read_only: true
+    tmpfs:
+      - /var/log/clickhouse-server:rw,noexec,nosuid,size=32m,uid=101,gid=101
+      - /etc/clickhouse-server/users.d:rw,noexec,nosuid,size=1m,uid=101,gid=101
+      - /tmp:rw,noexec,nosuid,size=64m,uid=101,gid=101
+    networks: [serving-private]
+    logging:
+      driver: json-file
+      options: {max-size: 8m, max-file: "1"}
+
+volumes:
+  serving-data:
+
+networks:
+  serving-private:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${M4_SERVING_SUBNET:-10.254.241.48/28}

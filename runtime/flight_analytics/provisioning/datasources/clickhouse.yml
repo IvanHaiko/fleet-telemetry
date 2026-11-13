@@ -1,0 +1,17 @@
+apiVersion: 1
+datasources:
+  - name: Flight ClickHouse
+    uid: flight-clickhouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    editable: false
+    jsonData:
+      host: clickhouse
+      port: 8123
+      protocol: http
+      username: flight_reader
+      defaultDatabase: f09_flight_analytics_v1
+      dialTimeout: 5
+      queryTimeout: 15
+    secureJsonData:
+      password: $FLIGHT_CH_READER_PASSWORD

@@ -1,0 +1,44 @@
+[project]
+name = "fleet-telemetry"
+version = "0.1.0"
+description = "Reproducible fleet telemetry replay, stream processing and analytics"
+license = "MIT"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[project.optional-dependencies]
+ulog = ["pyulog==1.2.2", "numpy==2.3.5"]
+kafka = ["confluent-kafka==2.16.0"]
+mavlink = ["pymavlink==2.4.50"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.16.5", "mypy==1.15.0"]
+
+[tool.uv]
+package = false
+required-version = "==0.11.19"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["ulog: requires the pinned optional ULog reader dependencies"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = [".uv-cache", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+exclude = ["*.md"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+explicit_package_bases = true
+mypy_path = ["tests"]
+follow_imports = "silent"
+files = ["fleet_telemetry.py", "telemetry", "ulog_integrity.py", "ulog_reader.py", "telemetry_convert.py", "telemetry_reader.py", "telemetry_receipts.py", "telemetry_publication.py", "telemetry_metrics.py", "telemetry_reference.py", "tests"]
+

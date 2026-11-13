@@ -1,0 +1,14 @@
+# Optional attachment to an existing authorized Prometheus monitoring network.
+# The existing Prometheus and its lifetime remain owned by their original stack.
+services:
+  grafana:
+    volumes:
+      - ../runtime/observability/dashboards:/var/lib/grafana/operations:ro
+    networks:
+      - flight-monitoring
+networks:
+  flight-monitoring:
+    external: true
+    name: ${FLIGHT_MONITORING_NETWORK:-fleet-continuous-001_monitoring-ui}
+
+

@@ -1,0 +1,722 @@
+{
+  "uid": "live-position-stream",
+  "title": "Live PX4 - source to SQL",
+  "schemaVersion": 39,
+  "version": 4,
+  "editable": false,
+  "timezone": "utc",
+  "refresh": "5s",
+  "timepicker": {
+    "hidden": true
+  },
+  "tags": [
+    "live",
+    "px4",
+    "position",
+    "sql"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pipeline state",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT status FROM position_stream.live_state SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "fresh": {
+                  "text": "LIVE",
+                  "color": "green"
+                },
+                "stale": {
+                  "text": "STALE",
+                  "color": "orange"
+                },
+                "unknown": {
+                  "text": "UNKNOWN",
+                  "color": "red"
+                },
+                "catching_up": {
+                  "text": "CATCHING UP",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 2,
+      "title": "Heartbeat",
+      "type": "stat",
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT connection FROM position_stream.live_state SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "connected": {
+                  "text": "CONNECTED",
+                  "color": "green"
+                },
+                "lost": {
+                  "text": "LOST",
+                  "color": "red"
+                },
+                "unknown": {
+                  "text": "UNKNOWN",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 3,
+      "title": "Positions",
+      "type": "stat",
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT count() AS positions FROM position_stream.positions SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "Unknown",
+          "decimals": 0,
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 4,
+      "title": "Altitude MSL",
+      "type": "stat",
+      "gridPos": {
+        "x": 14,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT altitude_msl_m FROM position_stream.live_state SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 5,
+      "title": "Ground speed",
+      "type": "stat",
+      "gridPos": {
+        "x": 19,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT ground_speed_m_s FROM position_stream.live_state SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "velocityms",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 6,
+      "title": "Altitude MSL - live SQL history",
+      "description": "Actual selected SQL measurements over the latest 10 native boot-clock minutes. Source boot time is not UTC. Historical samples remain when current state expires.",
+      "type": "xychart",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT toFloat64(boot_ms)/1000 AS native_boot_seconds,altitude_msl_m FROM position_stream.positions WHERE boot_ms >= (SELECT max(boot_ms) FROM position_stream.positions)-600000 ORDER BY boot_ms SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points+lines",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Altitude MSL (m)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 7,
+      "title": "Speed - live SQL history",
+      "description": "Actual selected SQL measurements over the latest 10 native boot-clock minutes. Source boot time is not UTC. Historical samples remain when current state expires.",
+      "type": "xychart",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT toFloat64(boot_ms)/1000 AS native_boot_seconds,ground_speed_m_s,down_speed_m_s FROM position_stream.positions WHERE boot_ms >= (SELECT max(boot_ms) FROM position_stream.positions)-600000 ORDER BY boot_ms SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "velocityms",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points+lines",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Speed (m/s; down positive)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 8,
+      "title": "Relative altitude - live SQL history",
+      "description": "Actual selected SQL measurements over the latest 10 native boot-clock minutes. Source boot time is not UTC. Historical samples remain when current state expires.",
+      "type": "xychart",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT toFloat64(boot_ms)/1000 AS native_boot_seconds,relative_altitude_m FROM position_stream.positions WHERE boot_ms >= (SELECT max(boot_ms) FROM position_stream.positions)-600000 ORDER BY boot_ms SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points+lines",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Relative altitude (m)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 9,
+      "title": "Position estimate offset from first sample",
+      "description": "Actual selected SQL measurements over the latest 10 native boot-clock minutes. Source boot time is not UTC. Historical samples remain when current state expires.",
+      "type": "xychart",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT toFloat64(boot_ms)/1000 AS native_boot_seconds,(longitude_deg-(SELECT argMin(longitude_deg,boot_ms) FROM position_stream.positions))*pi()/180*6371000*cos(latitude_deg*pi()/180) AS east_m,(latitude_deg-(SELECT argMin(latitude_deg,boot_ms) FROM position_stream.positions))*pi()/180*6371000 AS north_m FROM position_stream.positions WHERE boot_ms >= (SELECT max(boot_ms) FROM position_stream.positions)-600000 ORDER BY boot_ms SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "noValue": "Unknown",
+          "decimals": 3,
+          "custom": {
+            "show": "points+lines",
+            "lineWidth": 1,
+            "pointSize": {
+              "fixed": 2
+            },
+            "axisLabel": "Approximate estimate offset (m)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_boot_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Source boot time (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "mapping": "auto",
+        "series": [
+          {}
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 10,
+      "title": "Current SQL position",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "position-live"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "position-live"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT status,connection,toFloat64(source_boot_ms)/1000 AS source_boot_seconds,latitude_deg,longitude_deg,altitude_msl_m,relative_altitude_m,ground_speed_m_s,down_speed_m_s FROM position_stream.live_state SETTINGS max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "decimals": 7
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "13.2.4"
+    },
+    {
+      "id": 11,
+      "title": "Live source and clock",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**PX4 SITL -> Kafka -> Flink -> archive -> SQL.** Refresh: 5 s. Current values become Unknown when SQL/source receipt health expires; history remains visible. Chart X axis is native boot seconds, not measurement UTC. Position offsets are a local approximation of estimate changes, not flight distance. This stream contains position; battery is not present. Local recording guard: 1 hour or 3,600 deliveries."
+      },
+      "pluginVersion": "13.2.4"
+    }
+  ]
+}

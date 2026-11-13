@@ -1,0 +1,1326 @@
+{
+  "uid": "flight-f09-details",
+  "title": "Flight research - recording detail",
+  "schemaVersion": 39,
+  "version": 5,
+  "editable": false,
+  "timezone": "utc",
+  "tags": [
+    "restricted",
+    "historical",
+    "research"
+  ],
+  "time": {
+    "from": "2025-08-21T11:40:00Z",
+    "to": "2025-08-21T12:30:00Z"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "vehicle",
+        "label": "Recording aircraft",
+        "type": "custom",
+        "query": "f09-research-vehicle",
+        "current": {
+          "selected": true,
+          "text": "f09-research-vehicle",
+          "value": "f09-research-vehicle"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "About this recording",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "F09 restricted research recording. GPS UTC is receiver-reported, not a validated measurement-time mapping. 15 dropout markers indicate incomplete source recording; do not infer the number of missing samples. Speed is GPS ground speed and altitude is above mean sea level. No real-time connectivity is implied. Battery values are associated by native timestamps using an exploratory one-second age bound. The chart axis uses receiver-reported GPS UTC only for display; it is not battery sample time. Unknown associations are gaps. Source dropout counts and physical simultaneity remain unverified."
+      }
+    },
+    {
+      "id": 19,
+      "title": "Latest recorded values in selected interval",
+      "type": "table",
+      "description": "Historical last GPS record in the selected receiver-UTC interval. Native boot time identifies the inspection point. Battery and state use distinct age and uncertainty rules; missing values remain NULL. This is not current drone state or physical simultaneity.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "WITH snapshot AS (\nSELECT g.source_ordinal AS source_ordinal, g.native_timestamp_us AS native_timestamp_us, g.latitude_deg AS latitude_deg, g.longitude_deg AS longitude_deg, g.altitude_msl_m AS altitude_msl_m, g.ground_speed_m_s AS ground_speed_m_s, g.fix_type AS fix_type, bm.status AS battery_status, bm.age_us AS battery_age_us,\nb.voltage_v AS voltage_v, b.current_a AS current_a, b.remaining_fraction AS remaining_fraction,\nlm.status AS land_status, lm.age_us AS land_age_us,\nl.landed AS landed, l.ground_contact AS ground_contact, l.maybe_landed AS maybe_landed,\ncm.status AS commander_status, cm.age_us AS commander_age_us,\nc.arming_state AS arming_state, c.nav_state AS nav_state, c.failsafe AS failsafe\nFROM (SELECT * FROM f09_flight_analytics_v1.gps_v1\nWHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL\nAND $__timeFilter(gps_utc) ORDER BY source_ordinal DESC LIMIT 1) AS g\nLEFT JOIN f09_battery_research_v1.gps_battery_match_v1 AS bm ON g.event_id=bm.gps_event_id\nLEFT JOIN f09_battery_research_v1.battery_v1 AS b ON bm.battery_event_id=b.event_id\nLEFT JOIN (SELECT * FROM f09_state_association_v1.gps_state_match_v1\nWHERE state_stream='vehicle_land_detected' AND association_version='f09-gps-state-association-v1') AS lm ON g.event_id=lm.gps_event_id\nLEFT JOIN f09_state_research_v1.state_v1 AS l ON lm.state_event_id=l.event_id\nLEFT JOIN (SELECT * FROM f09_state_association_v1.gps_state_match_v1\nWHERE state_stream='vehicle_status' AND association_version='f09-gps-state-association-v1') AS cm ON g.event_id=cm.gps_event_id\nLEFT JOIN f09_state_research_v1.state_v1 AS c ON cm.state_event_id=c.event_id\n)\nSELECT source_ordinal AS gps_ordinal, native_timestamp_us AS gps_native_us,\ntupleElement(reading, 2) AS field, tupleElement(reading, 3) AS value,\ntupleElement(reading, 4) AS unit, tupleElement(reading, 5) AS association_status,\nif(isNull(tupleElement(reading, 3)), 'missing', 'available') AS value_status,\ntupleElement(reading, 6) AS age_seconds\nFROM snapshot ARRAY JOIN [\ntuple(0, 'latitude_deg', toString(latitude_deg), 'deg', 'recorded', CAST(NULL AS Nullable(Float64))),\ntuple(1, 'longitude_deg', toString(longitude_deg), 'deg', 'recorded', CAST(NULL AS Nullable(Float64))),\ntuple(2, 'altitude_msl_m', toString(altitude_msl_m), 'm', 'recorded', CAST(NULL AS Nullable(Float64))),\ntuple(3, 'ground_speed_m_s', toString(ground_speed_m_s), 'm/s', 'recorded', CAST(NULL AS Nullable(Float64))),\ntuple(4, 'fix_type', toString(fix_type), 'code', 'recorded', CAST(NULL AS Nullable(Float64))),\ntuple(5, 'voltage_v', if(battery_status='matched', toString(voltage_v), CAST(NULL AS Nullable(String))), 'V', coalesce(battery_status, 'missing'), if(battery_status='matched', battery_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(6, 'current_a', if(battery_status='matched', toString(current_a), CAST(NULL AS Nullable(String))), 'A', coalesce(battery_status, 'missing'), if(battery_status='matched', battery_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(7, 'remaining_fraction', if(battery_status='matched', toString(remaining_fraction), CAST(NULL AS Nullable(String))), 'fraction', coalesce(battery_status, 'missing'), if(battery_status='matched', battery_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(8, 'landed', if(land_status='matched', toString(landed), CAST(NULL AS Nullable(String))), 'flag', coalesce(land_status, 'missing'), if(land_status='matched', land_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(9, 'ground_contact', if(land_status='matched', toString(ground_contact), CAST(NULL AS Nullable(String))), 'flag', coalesce(land_status, 'missing'), if(land_status='matched', land_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(10, 'maybe_landed', if(land_status='matched', toString(maybe_landed), CAST(NULL AS Nullable(String))), 'flag', coalesce(land_status, 'missing'), if(land_status='matched', land_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(11, 'arming_state', if(commander_status='matched', toString(arming_state), CAST(NULL AS Nullable(String))), 'code', coalesce(commander_status, 'missing'), if(commander_status='matched', commander_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(12, 'nav_state', if(commander_status='matched', toString(nav_state), CAST(NULL AS Nullable(String))), 'code', coalesce(commander_status, 'missing'), if(commander_status='matched', commander_age_us/1000000.0, CAST(NULL AS Nullable(Float64)))),\ntuple(13, 'failsafe', if(commander_status='matched', toString(failsafe), CAST(NULL AS Nullable(String))), 'flag', coalesce(commander_status, 'missing'), if(commander_status='matched', commander_age_us/1000000.0, CAST(NULL AS Nullable(Float64))))] AS reading ORDER BY tupleElement(reading, 1)\nSETTINGS join_use_nulls=1, max_execution_time=10, max_threads=1,\nmax_memory_usage=268435456, max_rows_to_read=200000,\nmax_bytes_to_read=64000000, read_overflow_mode='throw' "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gps_ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "GPS #"
+              },
+              {
+                "id": "custom.width",
+                "value": 65
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gps_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Boot us"
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "field"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Field"
+              },
+              {
+                "id": "custom.width",
+                "value": 165
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Value"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unit"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Unit"
+              },
+              {
+                "id": "custom.width",
+                "value": 65
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "association_status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Association"
+              },
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value_status"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Value status"
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Age (s)"
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "GPS ground speed (m/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT gps_utc AS time, ground_speed_m_s AS speed FROM f09_flight_analytics_v1.gps_v1 WHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL AND $__timeFilter(gps_utc) ORDER BY gps_utc"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "GPS altitude above mean sea level (m)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT gps_utc AS time, altitude_msl_m AS altitude FROM f09_flight_analytics_v1.gps_v1 WHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL AND $__timeFilter(gps_utc) ORDER BY gps_utc"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "title": "GPS fix type",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT gps_utc AS time, fix_type AS fix FROM f09_flight_analytics_v1.gps_v1 WHERE vehicle_id = ${vehicle:sqlstring} AND gps_utc IS NOT NULL AND $__timeFilter(gps_utc) ORDER BY gps_utc"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "title": "Battery voltage (V)",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.voltage_v, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "Battery current (A)",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.current_a, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "amp",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "title": "Battery remaining fraction",
+      "description": "Research association, GPS UTC display axis; unmatched positions are null. Not a battery measurement-time or safety claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status = 'matched', b.remaining_fraction, CAST(NULL AS Nullable(Float64))) AS value FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id LEFT JOIN f09_battery_research_v1.battery_v1 AS b ON m.battery_event_id = b.event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) ORDER BY g.gps_utc SETTINGS join_use_nulls=1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 8,
+      "title": "GPS / battery association status",
+      "description": "Counts GPS rows in the selected displayed time range. Unknown statuses have no associated battery value; source dropout losses remain unknown.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT m.status AS association_status, count() AS gps_records, max(m.max_age_us) AS max_age_us FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_battery_research_v1.gps_battery_match_v1 AS m ON g.event_id = m.gps_event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) GROUP BY m.status ORDER BY m.status"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 9,
+      "title": "Recorded state: native-time research scope",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "The tables below describe the entire F09 recording and ignore the GPS UTC time picker. Times are microseconds since system start, not UTC. Counts describe records, not durations. Land flags are detector reports, not verified flight phases; arming codes 1/2 mean recorded disarmed/armed. nav_state retains the firmware code. Only the first 200 changes are listed. No GPS/battery state association, flight duration, completeness or current vehicle status is inferred. Source dropout locations and missing counts remain unknown."
+      }
+    },
+    {
+      "id": 10,
+      "title": "Recorded state coverage - full recording",
+      "description": "Full recording; ignores GPS UTC time picker. Restricted observed records only.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT stream, count() AS records, min(native_timestamp_us) AS first_native_us, max(native_timestamp_us) AS last_native_us, max(native_timestamp_us)-min(native_timestamp_us) AS observed_span_us FROM f09_state_research_v1.state_v1 GROUP BY stream ORDER BY stream SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=10000, max_bytes_to_read=8000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 60,
+            "width": 120
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stream"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source_ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ordinal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_timestamp_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Native time (us)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ground_contact"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Contact"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maybe_landed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maybe landed"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "arming_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Arming"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "nav_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mode code"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "First native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_span_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Observed span (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 11,
+      "title": "Land detector flags - record counts",
+      "description": "Full recording; ignores GPS UTC time picker. Restricted observed records only.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT landed, ground_contact, maybe_landed, count() AS records FROM f09_state_research_v1.state_v1 WHERE stream='vehicle_land_detected' GROUP BY landed, ground_contact, maybe_landed ORDER BY landed, ground_contact, maybe_landed SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=10000, max_bytes_to_read=8000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 60,
+            "width": 120
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stream"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source_ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ordinal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_timestamp_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Native time (us)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ground_contact"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Contact"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maybe_landed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maybe landed"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "arming_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Arming"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "nav_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mode code"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "First native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_span_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Observed span (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 12,
+      "title": "Commander state codes - record counts",
+      "description": "Full recording; ignores GPS UTC time picker. Restricted observed records only.",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT arming_state, nav_state, failsafe, count() AS records FROM f09_state_research_v1.state_v1 WHERE stream='vehicle_status' GROUP BY arming_state, nav_state, failsafe ORDER BY arming_state, nav_state, failsafe SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=10000, max_bytes_to_read=8000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 60,
+            "width": 120
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stream"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source_ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ordinal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_timestamp_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Native time (us)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ground_contact"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Contact"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maybe_landed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maybe landed"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "arming_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Arming"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "nav_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mode code"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "First native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_span_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Observed span (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 13,
+      "title": "Recorded state changes - first 200",
+      "description": "Full recording; ignores GPS UTC time picker. Restricted observed records only.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT stream, source_ordinal, native_timestamp_us, landed, ground_contact, maybe_landed, arming_state, nav_state, failsafe FROM (SELECT *, tuple(ifNull(landed,255),ifNull(ground_contact,255),ifNull(maybe_landed,255),ifNull(arming_state,255),ifNull(nav_state,255),ifNull(failsafe,255)) AS state, lagInFrame(state,1,state) OVER (PARTITION BY stream ORDER BY source_ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS previous FROM f09_state_research_v1.state_v1) WHERE source_ordinal>0 AND state!=previous ORDER BY native_timestamp_us, stream, source_ordinal LIMIT 200 SETTINGS max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=10000, max_bytes_to_read=8000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "minWidth": 60,
+            "width": 90
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stream"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "native_timestamp_us"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 165
+              },
+              {
+                "id": "displayName",
+                "value": "Native time (us)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source_ordinal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Ordinal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ground_contact"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Contact"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maybe_landed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Maybe landed"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "arming_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Arming"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "nav_state"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mode code"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "First native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_native_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last native (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observed_span_us"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Observed span (us)"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 14,
+      "title": "GPS / recorded state: research association",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 77,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "The following charts use the last preceding recorded state separately for each stream, at most one second old in native boot time. Unknown associations are NULL gaps, including conservative file-neighbor masks around 15 dropout markers. These masks are not physical dropout times. GPS UTC is only the display axis; the same-boot clock assumption is not proof of physical simultaneity. Recorded flags and codes are not flight phases, live status or alarms. The status table reports GPS records in the selected displayed time range."
+      }
+    },
+    {
+      "id": 15,
+      "title": "Associated land detector flags",
+      "description": "Recorded state associated by native time, at most one second old. GPS UTC is display only. Unknowns remain NULL; no flight-phase or live-status claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 81,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status='matched', toNullable(toFloat64(s.landed)), CAST(NULL AS Nullable(Float64))) AS landed, if(m.status='matched', toNullable(toFloat64(s.ground_contact)), CAST(NULL AS Nullable(Float64))) AS ground_contact, if(m.status='matched', toNullable(toFloat64(s.maybe_landed)), CAST(NULL AS Nullable(Float64))) AS maybe_landed FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_state_association_v1.gps_state_match_v1 AS m ON g.event_id=m.gps_event_id LEFT JOIN f09_state_research_v1.state_v1 AS s ON m.state_event_id=s.event_id  WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) AND m.association_version = 'f09-gps-state-association-v1' AND m.state_stream='vehicle_land_detected' ORDER BY g.gps_utc SETTINGS join_use_nulls=1, max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=150000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "spanNulls": false,
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 16,
+      "title": "Associated commander state codes",
+      "description": "Recorded state associated by native time, at most one second old. GPS UTC is display only. Unknowns remain NULL; no flight-phase or live-status claim.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 81,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status='matched', toNullable(toFloat64(s.arming_state)), CAST(NULL AS Nullable(Float64))) AS arming_state, if(m.status='matched', toNullable(toFloat64(s.nav_state)), CAST(NULL AS Nullable(Float64))) AS nav_state, if(m.status='matched', toNullable(toFloat64(s.failsafe)), CAST(NULL AS Nullable(Float64))) AS failsafe FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_state_association_v1.gps_state_match_v1 AS m ON g.event_id=m.gps_event_id LEFT JOIN f09_state_research_v1.state_v1 AS s ON m.state_event_id=s.event_id  WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) AND m.association_version = 'f09-gps-state-association-v1' AND m.state_stream='vehicle_status' ORDER BY g.gps_utc SETTINGS join_use_nulls=1, max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=150000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "spanNulls": false,
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 17,
+      "title": "GPS / state association status",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 90,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "table",
+          "rawSql": "SELECT m.state_stream, m.status, count() AS gps_records, max(m.max_age_us) AS max_age_us FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_state_association_v1.gps_state_match_v1 AS m ON g.event_id=m.gps_event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) AND m.association_version = 'f09-gps-state-association-v1' GROUP BY m.state_stream, m.status ORDER BY m.state_stream, m.status SETTINGS join_use_nulls=1, max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=150000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 18,
+      "title": "Associated state age (seconds)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 97,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "flight-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "flight-clickhouse"
+          },
+          "queryType": "timeseries",
+          "rawSql": "SELECT g.gps_utc AS time, if(m.status='matched', toNullable(m.age_us/1000000.0), CAST(NULL AS Nullable(Float64))) AS age_seconds, m.state_stream AS stream FROM f09_flight_analytics_v1.gps_v1 AS g INNER JOIN f09_state_association_v1.gps_state_match_v1 AS m ON g.event_id=m.gps_event_id WHERE g.vehicle_id = ${vehicle:sqlstring} AND g.gps_utc IS NOT NULL AND $__timeFilter(g.gps_utc) AND m.association_version = 'f09-gps-state-association-v1' ORDER BY g.gps_utc, m.state_stream SETTINGS join_use_nulls=1, max_execution_time=10, max_threads=1, max_memory_usage=268435456, max_rows_to_read=150000, max_bytes_to_read=64000000, read_overflow_mode='throw'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

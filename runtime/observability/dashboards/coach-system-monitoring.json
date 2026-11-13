@@ -1,0 +1,1118 @@
+{
+  "uid": "coach-system-monitoring",
+  "title": "Telemetry - system monitoring",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "editable": false,
+  "tags": [
+    "telemetry",
+    "two-host",
+    "monitoring",
+    "coach-demo"
+  ],
+  "timezone": "utc",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "description": "Native service and Flink metrics for the Ethernet two-host topology. Missing telemetry is not zero.",
+  "links": [
+    {
+      "title": "GPS and flight analytics",
+      "type": "link",
+      "url": "/d/coach-flight-analytics",
+      "targetBlank": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Ethernet two-host system",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Laptop:** Flink and Kafka nodes 3/5/6. **PC:** Kafka nodes 1/2/4, archive, ClickHouse, Prometheus and Grafana. SSH forwards carry service metrics over Ethernet. Scrape health is reachability, not end-to-end correctness. Missing job metrics stay **Unknown**; operator records/s are not unique measurements/s. JVM heap excludes Python workers; process RSS excludes host RAM and page cache. Full host CPU/RAM/disk, Kafka broker/ISR and archive-worker metrics are not supplied by the foundation scrape config."
+      }
+    },
+    {
+      "id": 2,
+      "title": "PC Prometheus",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"prometheus\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 3,
+      "title": "PC Grafana",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 4,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"grafana\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 4,
+      "title": "PC ClickHouse",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"serving\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 5,
+      "title": "PC S3 service",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"archive\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 6,
+      "title": "Laptop JobManager",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"flink\",instance=\"jobmanager:9249\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 7,
+      "title": "Laptop TaskManager",
+      "type": "stat",
+      "pluginVersion": "13.2.4",
+      "gridPos": {
+        "x": 20,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"flink\",instance=\"taskmanager:9249\"}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "description": "An instant scrape result. Missing target/configuration/series is Unknown, not UP or zero."
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Component scrape health",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up",
+          "legendFormat": "{{job}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Flink operator input (records/s; includes internal traffic)",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (task_name) (rate(flink_taskmanager_job_task_numRecordsIn[30s]))",
+          "legendFormat": "{{task_name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:records/s",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Laptop Flink JVM heap (excludes Python and host RAM)",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"flink_(jobmanager|taskmanager)_Status_JVM_Memory_Heap_Used\"}",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "PC process RSS (excludes host RAM and page cache)",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=~\"archive|prometheus|grafana\"}",
+          "legendFormat": "{{job}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"serving\"}",
+          "legendFormat": "ClickHouse",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Laptop Flink JVM CPU load",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"flink_(jobmanager|taskmanager)_Status_JVM_CPU_Load\"}",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "PC Go service CPU seconds per second",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=~\"archive|prometheus|grafana\"}[1m])",
+          "legendFormat": "{{job}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:cores",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Kafka reader pending records (not committed lag)",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(flink_taskmanager_job_task_operator_pendingRecords)",
+          "legendFormat": "pending source records",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Battery dispositions (attempt-local counters)",
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"flink_taskmanager_job_task_operator_(eligible|duplicate|late)\"}",
+          "legendFormat": "{{__name__}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Completed Flink checkpoints",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flink_jobmanager_job_numberOfCompletedCheckpoints",
+          "legendFormat": "{{job_name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Checkpoint duration (positive samples only)",
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flink_jobmanager_job_lastCheckpointDuration > 0",
+          "legendFormat": "{{job_name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Flink running jobs",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "flink_jobmanager_numRunningJobs",
+          "legendFormat": "running jobs",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Firing alerts",
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "legendFormat": "{{alertname}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Collected samples per target",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_samples_post_metric_relabeling",
+          "legendFormat": "{{job}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Scrape duration",
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_duration_seconds",
+          "legendFormat": "{{job}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Native service metric. Missing data remains unknown; no absent series is replaced with zero."
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Flink scrape sample budget (20,000 per target)",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_samples_post_metric_relabeling{job=\"flink\"} / 20000",
+          "legendFormat": "{{job}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Scrape samples rejected after limits",
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fleet-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(prometheus_target_scrapes_exceeded_sample_limit_total[5m])",
+          "legendFormat": "{{job}} / {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fleet-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

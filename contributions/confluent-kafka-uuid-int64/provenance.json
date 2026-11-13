@@ -1,0 +1,13 @@
+{
+  "prepared_date": "2026-10-24",
+  "upstream_repository": "https://github.com/confluentinc/confluent-kafka-python",
+  "full_patch_base": "fbb7c3b349a26f7ba32d7e00d55373f9b450efba",
+  "related_pr": "https://github.com/confluentinc/confluent-kafka-python/pull/2325",
+  "test_only_patch_base": "050b1f59ff4e175cc1b397052a5ac5ccf215f1b9",
+  "tested_release_tag_commit": "4a1bcb01a1c977bc61faa6c8ae72f56aa250c121",
+  "original_current_c_sha256": "108b1435a220ead69bd401d59c4e5ee75facbdb2bd6f27e1947d70a046faa0c8",
+  "patched_current_c_sha256": "7e66599228fd0ceb2759f5b2ef210f677747c4a51b1e5f304f9bd40e1aabc9a4",
+  "local_reviewed_c_patch_sha256": "38b1271af3d3680a1b713633070da2c1ac9befade425a7c6bb9a843c7625760d",
+  "native_regression_ast_equal_to_independent_frozen_test": true,
+  "no_publication_performed": true
+}

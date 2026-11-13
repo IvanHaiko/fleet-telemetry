@@ -1,0 +1,31 @@
+name: fleet-m4-reader-001
+
+services:
+  kafka:
+    image: fleet-telemetry/kafka-probe:4.4.0
+    pull_policy: never
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:19092:19092"
+    environment:
+      KAFKA_CLUSTER_ID: "BAQEBAQEBAQEBAQEBAQEBA"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1536m
+    cpus: 2
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  kafka-data:

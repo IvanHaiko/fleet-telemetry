@@ -1,0 +1,16 @@
+<clickhouse>
+  <max_server_memory_usage>1610612736</max_server_memory_usage>
+  <max_connections>32</max_connections>
+  <max_concurrent_queries>4</max_concurrent_queries>
+  <background_pool_size>2</background_pool_size>
+  <background_schedule_pool_size>4</background_schedule_pool_size>
+  <background_buffer_flush_schedule_pool_size>1</background_buffer_flush_schedule_pool_size>
+  <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
+  <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+  <merge_tree>
+    <number_of_free_entries_in_pool_to_execute_mutation>1</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>1</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>1</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+  </merge_tree>
+  <logger><level>warning</level></logger>
+</clickhouse>

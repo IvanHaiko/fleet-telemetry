@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulated fleet position</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+<style>
+body{margin:0;font:16px system-ui;background:#101722;color:#e9edf4}header{padding:16px 24px}h1{font-size:1.4rem;margin:0 0 6px}p{margin:6px 0}#map{height:65vh;min-height:300px;background:#dce5ea}#status{padding:12px 24px}li{margin:4px 0}.warning{color:#ffd183}
+</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+</head>
+<body>
+<header><h1>Simulated fleet position</h1><p>PX4 SITL positions · Live data can become stale.</p><p class="warning">Map tiles are requested from OpenStreetMap; this demo accepts simulated coordinates only.</p></header>
+<div id="map" aria-label="Simulated vehicle map"></div><section id="status" aria-live="polite">Waiting for position stream…</section>
+<script>
+const status = document.querySelector('#status');
+const markers = new Map(); let centered = false;
+if (!window.L) { status.textContent = 'Map library unavailable. Check the network connection.'; }
+else {
+  const map = L.map('map').setView([0, 0], 2);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+  }).addTo(map);
+  async function poll() {
+    try {
+      const response = await fetch('/v1/positions', {cache:'no-store', signal:AbortSignal.timeout(2000)});
+      if (!response.ok) throw Error('unavailable');
+      const state = await response.json();
+      if (state.format_version !== 'simulated-position-view-v1' || state.collection_ok !== true || !Array.isArray(state.vehicles) || state.vehicles.length > 10) throw Error('unavailable');
+      const messages = [];
+      for (const row of state.vehicles) {
+        if (!Number.isInteger(row.system_id) || !['fresh','stale','unknown'].includes(row.status)) throw Error('bad data');
+        messages.push('Drone '+row.system_id+': '+row.status+(typeof row.age_seconds==='number'?' ('+row.age_seconds.toFixed(1)+' s)':''));
+        if (row.status === 'unknown') { if(markers.has(row.system_id)) { map.removeLayer(markers.get(row.system_id)); markers.delete(row.system_id); } continue; }
+        if (!Number.isFinite(row.latitude_deg)||!Number.isFinite(row.longitude_deg)) throw Error('bad position');
+        let marker = markers.get(row.system_id);
+        if (!marker) { marker = L.circleMarker([row.latitude_deg,row.longitude_deg],{radius:9}).addTo(map); markers.set(row.system_id,marker); }
+        marker.setLatLng([row.latitude_deg,row.longitude_deg]);
+        marker.setStyle({color:row.status==='fresh'?'#20a05b':'#d88900'});
+        marker.bindTooltip('Drone '+row.system_id+' · '+row.status);
+        if (!centered && row.status==='fresh') { map.setView([row.latitude_deg,row.longitude_deg],16); centered=true; }
+      }
+      status.textContent = messages.join(' · ') || 'Waiting for positions';
+    } catch { status.textContent = 'Position stream unavailable'; for (const marker of markers.values()) marker.setStyle({color:'#888'}); }
+    setTimeout(poll, 1000);
+  }
+  poll();
+}
+</script></body></html>

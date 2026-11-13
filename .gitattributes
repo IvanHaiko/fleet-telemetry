@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Keep these fixtures byte-exact.
+tests/fixtures/synthetic-battery-v1.json -text
+tests/fixtures/ulog-battery-policy-v1.json -text
+tests/fixtures/consumer-audit-receipt-v1.json -text
+
+*.png binary

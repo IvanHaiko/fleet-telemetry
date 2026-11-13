@@ -1,0 +1,11 @@
+# Combine with the existing M3, M4 storage and M4 serving recipes.
+# Explicit free ranges avoid exhausting Docker Desktop's automatic pools.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${M4_SLICE_RUNTIME_SUBNET:-10.254.241.96/28}
+  archive-private:
+    ipam:
+      config:
+        - subnet: ${M4_SLICE_ARCHIVE_SUBNET:-10.254.241.112/28}
