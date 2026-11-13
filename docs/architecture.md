@@ -809,8 +809,9 @@ adoption remains gated by producer, full firmware-definition and rights evidence
 | Bounded live position source to SQL | Proposed, locally demonstrated | [ADR-0046](adr/0046-live-position-source-query-slice.md) reconciles 16 new SITL positions and 18 deliveries through Kafka/Flink, S3 and SQL; continuous operation and integrated recovery remain open |
 | Guarded continuous position | Proposed, locally demonstrated | [ADR-0047](adr/0047-continuous-local-position.md) demonstrates continuing archive/SQL, expiring SQL state and post-write store recovery; physical sources and broader failure recovery remain open |
 | Default single-machine startup | Accepted development direction | [ADR-0051](adr/0051-single-machine-default.md) selects one broker, 12 partitions and a small Flink session cluster; the starter does not certify the complete archive/SQL path |
-| Integrated local MVP and reusable evidence | Accepted product direction; implementation open | [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) prioritizes one GPS/battery/state source-to-query path and bounded preservation for later reuse; it does not enlarge prior runtime acceptance |
-| Bounded F09 multi-stream input/reference | Proposed runtime boundary; offline checked | [ADR-0049](adr/0049-bounded-f09-stream-events.md) defines identity-preserving event/context/fact profiles; a real interval matches prior inspection, while transport/archive/SQL integration remains open |
+| Integrated local MVP and reusable evidence | Accepted product direction; first bounded interval demonstrated, full MVP open | [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) prioritizes one GPS/battery/state source-to-query path and bounded preservation for later reuse; it does not enlarge prior runtime acceptance |
+| Bounded F09 multi-stream input/reference | Proposed runtime boundary; offline checked | [ADR-0049](adr/0049-bounded-f09-stream-events.md) defines identity-preserving event/context/fact profiles; a real interval matches prior inspection; runtime integration is tracked under ADR-0050 |
+| Bounded integrated F09 runtime | Proposed, locally demonstrated for one 60-second interval | [ADR-0050](adr/0050-integrated-f09-runtime.md) runs GPS/battery/state through Kafka, Flink, independent archival, archive-gated ClickHouse serving and Grafana; full flight, checkpoint restore and the 4,096-delivery guard remain open |
 | Local S3-compatible distribution/client and conditional-write compatibility | M4 storage startup | [ADR-0024](adr/0024-m4-storage-compatibility.md) accepts the bounded pinned SeaweedFS/SDK foundation after live race/readback/permission checks, reviewed test supersessions and deterministic acceptance; checkpoint S3-plugin adoption stays separate |
 | Windows UUID native conversion | Any Windows Kafka publication | [ADR-0025](adr/0025-windows-kafka-uuid-repair.md) accepts the exact local SDK repair and observed full-width guard; earlier Windows identities still require audit |
 | Historical Windows topic identity trust | Reuse of pre-repair receipts | [ADR-0026](adr/0026-historical-topic-identity-qualification.md) qualifies 59 narrowed identities; independent attestations/migration remain required |
@@ -829,8 +830,10 @@ their archival boundary and local-first/cloud-execution gates.
 archive format and local candidate; its observation encoding subset is now
 accepted, while the full catalog protocol remains proposed. The [format/interface design](reference/archive-format-v1.md) defines
 exact-byte preservation, a trusted catalog root and whole-interval commit after
-independent readback. There is no archive worker, S3 checkpoint migration or
-production durability result. M3 acceptance still precedes M4 integration.
+independent readback. When ADR-0021 was written there was no archive worker,
+S3 checkpoint migration or production durability result; M3 acceptance preceded
+M4 integration. Bounded archive workers now exist under ADR-0027 and ADR-0050;
+S3 checkpoint migration and production durability remain open.
 
 [ADR-0022](adr/0022-persistent-m3-completion.md) accepts the bounded persistent
 local runtime. [ADR-0023](adr/0023-bounded-kafka-enumerator-backport.md) records

@@ -19,8 +19,9 @@ uv sync --frozen
 uv run --no-sync python scripts/check-m1.py --profile synthetic
 ```
 
-The check runner verifies the lock, synchronizes the chosen profile, runs Ruff,
-strict mypy and the root test suite, then converts, verifies and reads a fresh
+The check runner verifies the lock, synchronizes the chosen profile, runs Ruff
+lint and format checks over the whole repository, strict mypy over the library
+and root tests, and the root test suite, then converts, verifies and reads a fresh
 synthetic run. Pass `--profile ulog` to include the binary reader, or `--offline`
 when all locked packages are already cached. The synthetic profile deliberately
 omits optional parser/client packages; it must not reuse a mixed environment
