@@ -2,10 +2,9 @@
 
 ## Status, 2026-11-13
 
-[ADR-0052](../adr/0052-single-machine-recording-profile.md) defines this profile.
-Preparation and `docker compose config` have been checked; no container of the
-profile has run. Each command below that builds, starts or stops services needs
-explicit maintainer authorization.
+[ADR-0052](../adr/0052-single-machine-recording-profile.md) defines this profile
+and records the first complete run, `f09-full-20261113-002`. Each command below
+that builds, starts or stops services needs explicit maintainer authorization.
 
 ## Prerequisites
 
@@ -52,8 +51,10 @@ docker @compose --profile run up -d archive-worker serving-worker
 docker @compose --profile run up -d publisher
 ```
 
-Grafana is at `http://127.0.0.1:13003/`, and the admin password is in
-`compose.env`. The Flink UI is at `http://127.0.0.1:18082/`.
+Grafana is at `http://127.0.0.1:13003/`. The admin password is the one in the
+`compose.env` of the first preparation that created the `grafana-data` volume;
+Grafana ignores later ones. Five failed sign-ins lock the user for a few minutes.
+The Flink UI is at `http://127.0.0.1:18082/`.
 
 ## Completion and evidence
 

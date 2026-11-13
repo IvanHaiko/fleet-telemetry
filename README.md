@@ -45,6 +45,14 @@ flowchart LR
   GPS-centred facts in ClickHouse. When archiving was paused, serving stopped at
   415 facts and resumed to 538 once the archive caught up.
   [ADR-0050](docs/adr/0050-integrated-f09-runtime.md)
+- **The complete flight on one machine.** All 39,760 deliveries of the
+  39-minute flight went through one Kafka broker, Flink, the S3 archive and
+  ClickHouse at native speed. They became 21,054 facts whose content hashes
+  equal the reference set exactly. Every dashboard query ran through Grafana's
+  ClickHouse datasource at full size.
+  The run also exposed a ClickHouse thread limit and a SQL write path that falls
+  behind 1x after about 10,000 facts.
+  [ADR-0052](docs/adr/0052-single-machine-recording-profile.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The
   repository contains a reproduction, a native regression test prepared for the
@@ -151,7 +159,7 @@ This is a working local research prototype, not a production system.
 | One-machine Kafka/Flink starter | Synthetic runs reconcile end to end | Checkpoint restore in the starter |
 | Synthetic conversion | Deterministic events, identity and manifest checks | Arbitrary devices and firmware |
 | Archive, ClickHouse, Grafana | Replay, deduplication and selected failure/recovery checks on synthetic data | Production recovery; hosted CI for the broker lane |
-| Real flight (F09) | 60-second interval through the full path | Full flight; checkpoint restore |
+| Real flight (F09) | Complete 39-minute flight through the full path on one machine | SQL write throughput at 1x; checkpoint restore |
 | PX4 simulator (SITL) | Live position from source to SQL; a continuous session | Physical vehicles and radio links |
 
 F09 is a public fixed-wing research flight log; SITL is PX4's

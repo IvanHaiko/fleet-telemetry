@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import importlib
 import sys
+import time
 from typing import TYPE_CHECKING, Protocol, cast
 
 from telemetry.continuous_connection import LOCAL_ENDPOINTS, parse_connection
@@ -138,8 +139,17 @@ class Kafka:
                 "min.insync.replicas": str(self.replication),
             },
         )
+        # An existing topic fails here, so only a fresh topic reaches the wait.
         self.admin.create_topics([new], request_timeout=5)[topic].result(6)
-        return self.describe(topic)
+        # Metadata can lag creation on a fresh broker; retry only the readback.
+        for attempt in range(20):
+            try:
+                return self.describe(topic)
+            except Exception:
+                if attempt == 19:
+                    raise
+                time.sleep(0.5)
+        raise AssertionError("unreachable")
 
     def client_properties(self) -> dict[str, object]:
         """Share endpoint/TLS admission across admin, consumer and producer."""

@@ -19,7 +19,7 @@ from secrets import token_hex
 from typing import Protocol, cast
 
 from runtime.clickhouse.transport import HttpConfig, _request
-from runtime.continuous.kafka import Kafka
+from runtime.continuous.kafka import Consumer, Kafka, Position
 from runtime.continuous.recording_config import MAX_BODY, MAX_LIFETIME_SECONDS
 from runtime.continuous.recording_sql import _READ_SETTINGS, RecordingSQL
 from runtime.flight_analytics.stream_prepare import load_bundle
@@ -81,31 +81,31 @@ def private_json(path: Path, value: object) -> None:
     path.chmod(0o600)
 
 
+def watermarks(consumer: Consumer, position: Position) -> tuple[int, int]:
+    """Partition leadership can lag a new topic's metadata; retry reads only."""
+    for attempt in range(20):
+        try:
+            return consumer.get_watermark_offsets(position, timeout=5, cached=False)
+        except Exception:
+            if attempt == 19:
+                raise
+            time.sleep(0.5)
+    raise AssertionError("unreachable")
+
+
 def create_topics(kafka: Kafka, run: str) -> Document:
     """Create fresh topics; an existing name refuses inside create_topics."""
     sources: Document = {}
     for which in ("input", "output"):
         topic = f"telemetry.{run}.{which}.v1"
-        try:
-            sources[which] = kafka.create(topic)
-        except ValueError:
-            # Metadata can lag topic creation on a fresh broker.
-            for attempt in range(20):
-                time.sleep(0.5)
-                try:
-                    sources[which] = kafka.describe(topic)
-                    break
-                except ValueError:
-                    if attempt == 19:
-                        raise
+        sources[which] = kafka.create(topic)
         consumer = kafka.consumer(run + "-empty-admission")
         try:
             for position in kafka.positions(
                 topic, dict.fromkeys(map(str, range(kafka.partitions)), 0)
             ):
                 require(
-                    consumer.get_watermark_offsets(position, timeout=5, cached=False)
-                    == (0, 0),
+                    watermarks(consumer, position) == (0, 0),
                     "recording_topic_not_empty",
                 )
         finally:

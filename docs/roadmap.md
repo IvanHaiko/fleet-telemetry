@@ -76,11 +76,14 @@ Work in this order:
    archived in parts under the 16-MiB object cap, and the dashboard reads
    one-second buckets from a typed view. See
    [ADR-0050](adr/0050-integrated-f09-runtime.md#full-recording-bounds-2026-11-13).
-   The maintainer selected the single-machine placement.
-   [ADR-0052](adr/0052-single-machine-recording-profile.md) prepares that profile,
-   and its configuration is checked offline. Next is the actual 1x run from the
-   [run guide](guides/f09-single-machine-run.md). Building the worker image,
-   starting services and the run need separate authorization.
+   *Status 2026-11-13, run:* the complete flight ran at 1x on the
+   [single-machine profile](adr/0052-single-machine-recording-profile.md#complete-flight-run-2026-11-13).
+   All 39,760 deliveries were archived and read back exactly. SQL holds 21,054
+   facts whose content hashes equal the reference set, with no duplicate rows,
+   and the dashboard works at full size. One serving failure, ClickHouse thread
+   exhaustion, was fixed and the worker resumed from its cursor, so this is not
+   a clean uninterrupted run. SQL kept up with publication only for the first
+   10,000 facts. Batching serving writes is the next small task before step 3.
 3. **Prove the selected retry/recovery boundaries.** Reuse existing mechanisms
    and failure evidence. Demonstrate a serving interruption after SQL ACK but
    before cursor publication, pause/resume, duplicate-safe results and an isolated

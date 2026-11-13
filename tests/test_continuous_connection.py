@@ -218,3 +218,39 @@ def test_single_broker_topology_is_enforced_without_tls(
         client.describe("topic")
     with pytest.raises(ValueError, match="continuous_bootstrap_endpoints"):
         module.Kafka("kafka-2:9092", "cluster", single_host())
+
+
+def test_create_waits_for_lagging_metadata_but_never_reuses_a_topic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reproduced on a fresh broker: describe right after create can fail."""
+    sdk, admin_module = MagicMock(), MagicMock()
+    admin = admin_module.AdminClient.return_value
+    cluster = SimpleNamespace(
+        cluster_id="cluster", nodes=[SimpleNamespace(host="kafka", port=9092)]
+    )
+    admin.describe_cluster.return_value.result.return_value = cluster
+    ready = SimpleNamespace(topic_id="topic-id", partitions=list(range(12)))
+    lagging = MagicMock()
+    lagging.result.side_effect = [RuntimeError("unknown topic"), ready]
+    admin.describe_topics.return_value = {"topic": lagging}
+    monkeypatch.setattr(module, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(module, "require_uuid_boundary", lambda: None)
+    monkeypatch.setattr("runtime.continuous.kafka.time.sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        module,
+        "importlib",
+        SimpleNamespace(
+            import_module=lambda name: (
+                sdk if name == "confluent_kafka" else admin_module
+            )
+        ),
+    )
+    client = module.Kafka("kafka:9092", "cluster", single_host())
+    assert client.create("topic")["topic_id"] == "topic-id"
+    admin.create_topics.return_value = {"topic": MagicMock()}
+    admin.create_topics.return_value["topic"].result.side_effect = RuntimeError(
+        "topic already exists"
+    )
+    with pytest.raises(RuntimeError, match="already exists"):
+        client.create("topic")
