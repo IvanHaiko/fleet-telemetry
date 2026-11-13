@@ -45,9 +45,10 @@ does not demonstrate it.
 
 The [bounded stream preparation and reference](guides/f09-stream-replay.md) now provide
 the first step's offline event/context profiles and GPS-centred expected result.
-Pinned checks and a protected 60-second F09 comparison pass. Actual mixed-stream
-Kafka/Flink delivery, independent archival and processing-backed SQL/Grafana
-remain the next increment; this does not close step 1.
+Pinned checks and a protected 60-second F09 comparison pass. Mixed-stream
+Kafka/Flink delivery, independent archival and processing-backed SQL/Grafana have
+since run for that interval; see the [2026-11-11 update](#bounded-integration-update-2026-11-11)
+for its evidence and remaining limits.
 
 Work in this order:
 
@@ -57,8 +58,11 @@ Work in this order:
    ordinal coverage and reference result. Connect independent input archival and
    a serving worker to one fresh scope. Observe changing SQL position, values
    and state through the actual Grafana datasource. Preserve original native
-   timestamps, stable measurement IDs and separate association quality. This is
-   the next useful increment; do not introduce a generic adapter framework.
+   timestamps, stable measurement IDs and separate association quality. Do not
+   introduce a generic adapter framework. *Status 2026-11-11:* demonstrated
+   locally for the selected 60-second interval under
+   [ADR-0050](adr/0050-integrated-f09-runtime.md#local-evidence-2026-11-11);
+   checkpoint restore and the 4,096-delivery guard remain open. Step 2 is next.
 2. **One full F09 native-time replay.** Extend the checked interval to the
    approximately 39-minute recording at 1x, under declared storage/resource
    guards. Account for the 21,054 GPS, 11,730 original battery positions (11,723

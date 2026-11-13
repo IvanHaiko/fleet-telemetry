@@ -103,8 +103,10 @@ def main() -> int:
                 "else 0)"
             )
         run([python, "-c", "import sys; " + dependency_check], environment)
-        run([python, "-m", "ruff", "check", *SOURCES], environment)
-        run([python, "-m", "ruff", "format", "--check", *SOURCES], environment)
+        # Ruff covers every tracked Python file; it honours .gitignore, so local
+        # evidence trees stay out. Strict mypy stays on the typed core list.
+        run([python, "-m", "ruff", "check", "."], environment)
+        run([python, "-m", "ruff", "format", "--check", "."], environment)
         run([python, "-m", "mypy", *SOURCES], environment)
 
         # Pytest can clear basetemp. Use a fresh owned subtree inside the project.
