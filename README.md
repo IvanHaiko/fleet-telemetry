@@ -1,5 +1,7 @@
 # Fleet Telemetry
 
+[![CI](https://github.com/IvanHaiko/fleet-telemetry/actions/workflows/m1.yml/badge.svg)](https://github.com/IvanHaiko/fleet-telemetry/actions/workflows/m1.yml)
+
 A streaming data platform for drone flight telemetry. It replays PX4 flight logs
 and simulator streams through **Kafka → Flink → S3 archive → ClickHouse →
 Grafana**, and keeps every result traceable to the original recording.
@@ -48,7 +50,7 @@ flowchart LR
   repository contains a reproduction, a native regression test prepared for the
   related upstream pull request, and a narrow fallback fix.
   [Package](contributions/confluent-kafka-uuid-int64/README.md)
-- **Engineering hygiene.** 660+ tests, strict mypy, CI for Windows and Linux,
+- **Engineering hygiene.** 660+ tests, strict mypy, CI passing on Windows and Linux,
   pinned images and lockfiles, and 51 [architecture decision records](docs/adr/).
 
 ## Quickstart: Kafka and Flink on one machine
