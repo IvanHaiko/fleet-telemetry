@@ -6,7 +6,7 @@ from typing import cast
 
 from pyflink.common import Types
 from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
-from pyflink.datastream.state import ValueState, ValueStateDescriptor
+from pyflink.datastream.state import MapStateDescriptor, ValueStateDescriptor
 from telemetry.conversion_contract import (
     json_line,
     json_object,
@@ -15,7 +15,6 @@ from telemetry.conversion_contract import (
 )
 from telemetry.recording_runtime import (
     MAX_EVENTS,
-    MAX_SNAPSHOT_BYTES,
     Document,
     RecordingRuntime,
     _identifier,
@@ -23,6 +22,8 @@ from telemetry.recording_runtime import (
     make_output,
 )
 from telemetry.recording_stream import event_bytes, event_order, read_event
+
+_MAX_HEAD_BYTES = 4 * 65_536
 
 
 def validate_config(config: Document) -> None:
@@ -66,8 +67,9 @@ class RecordingOperator(KeyedProcessFunction):
     """Managed JSON state survives operator recreation at checkpoint boundaries.
 
     The Python object is only a cache for the single configured key. It is
-    discarded by open(), reconstructed from ValueState on the first input, and
-    written back before each output. Sink retries may repeat complete facts.
+    discarded by open(), rebuilt from a bounded head and keyed signatures on
+    the first input. After seeding up to three predecessors, each delivery
+    writes one head and at most one signature. Sink retries may repeat facts.
     """
 
     def __init__(self, config: Document) -> None:
@@ -93,46 +95,52 @@ class RecordingOperator(KeyedProcessFunction):
         ).hexdigest()
 
     def open(self, runtime_context: RuntimeContext) -> None:
-        self.state: ValueState[str] = runtime_context.get_state(
+        # Reuse the old descriptor to explicitly reject a v1 checkpoint.
+        self.state = runtime_context.get_state(
             ValueStateDescriptor("recording-runtime-state-v1", Types.STRING())
         )
         self.runtime: RecordingRuntime | None = None
-        self.next_offset = 0
-        self.signature_count = 0
+        self.signatures = runtime_context.get_map_state(
+            MapStateDescriptor(
+                "recording-signatures-v2", Types.STRING(), Types.STRING()
+            )
+        )
         metrics = runtime_context.get_metrics_group()
         self.counters = {
             name: metrics.counter("recording_" + name)
             for name in ("accepted", "duplicate", "late", "gps", "rejected")
         }
 
+    def _signature(self, identity: str) -> str | None:
+        if self.signatures.contains(identity):
+            return cast(str, self.signatures.get(identity))
+        return None
+
     def _load(self) -> RecordingRuntime:
         if self.runtime is not None:
             return self.runtime
         context = object_value(self.config["context"])
         age = cast(int, self.config["max_age_us"])
+        runtime = RecordingRuntime(context, max_age_us=age)
         stored = self.state.value()
-        if stored is None:
-            self.runtime = RecordingRuntime(context, max_age_us=age)
-            self.signature_count = len(
-                object_value(self.runtime.snapshot()["signatures"])
-            )
-            return self.runtime
-        if len(stored.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
-            raise ValueError("recording_operator_state_limit")
-        row = json_object(stored.encode("utf-8"))
-        require_keys(row, {"binding", "next_offset", "runtime"})
-        if row["binding"] != self.binding:
-            raise ValueError("recording_operator_state_binding")
-        self.next_offset = _integer(
-            row["next_offset"], 0, cast(int, self.config["deliveries"])
-        )
-        snapshot = object_value(row["runtime"])
-        if snapshot.get("deliveries") != self.next_offset:
-            raise ValueError("recording_operator_state_offset")
-        self.runtime = RecordingRuntime.restore(context, snapshot, max_age_us=age)
-        self.signature_count = len(object_value(snapshot["signatures"]))
-        if self.next_offset == self.config["deliveries"]:
-            self.runtime.finish()
+        head = None
+        if stored is not None:
+            # 3 events of at most 64 KiB plus positions, counters and binding.
+            if len(stored) > _MAX_HEAD_BYTES:
+                raise ValueError("recording_operator_state_limit")
+            row = json_object(stored.encode("utf-8"))
+            if "runtime" in row:
+                raise ValueError("recording_operator_legacy_state")
+            require_keys(row, {"binding", "head"})
+            if row["binding"] != self.binding:
+                raise ValueError("recording_operator_state_binding")
+            head = object_value(row["head"])
+        runtime.attach_managed_signatures(self._signature, self.signatures.put, head)
+        deliveries = cast(int, self.config["deliveries"])
+        _integer(runtime.deliveries, 0, deliveries)
+        if runtime.deliveries == deliveries:
+            runtime.finish()
+        self.runtime = runtime
         return self.runtime
 
     def process_element(
@@ -148,7 +156,7 @@ class RecordingOperator(KeyedProcessFunction):
             key, payload, topic, partition, offset = fields
             _integer(partition, 0, 0)
             _integer(offset, 0, cast(int, self.config["deliveries"]) - 1)
-            if topic != self.config["input_topic"] or offset != self.next_offset:
+            if topic != self.config["input_topic"] or offset != runtime.deliveries:
                 raise ValueError("recording_operator_coordinate")
             if not isinstance(key, (bytes, bytearray)) or not isinstance(
                 payload, (bytes, bytearray)
@@ -159,19 +167,14 @@ class RecordingOperator(KeyedProcessFunction):
                 raise ValueError("recording_operator_event_encoding")
             if bytes(key) != cast(str, event["measurement_id"]).encode("utf-8"):
                 raise ValueError("recording_operator_key")
+            previous_count = runtime.signature_count
             fact = runtime.accept(event)
-            self.next_offset += 1
-            if self.next_offset == self.config["deliveries"]:
+            if runtime.deliveries == self.config["deliveries"]:
                 runtime.finish()
-            snapshot = runtime.snapshot()
             packet = json_line(
-                {
-                    "binding": self.binding,
-                    "next_offset": self.next_offset,
-                    "runtime": snapshot,
-                }
+                {"binding": self.binding, "head": runtime.checkpoint_head()}
             )
-            if len(packet) > MAX_SNAPSHOT_BYTES:
+            if len(packet) > _MAX_HEAD_BYTES:
                 raise ValueError("recording_operator_state_limit")
             output = None
             if fact is not None:
@@ -182,12 +185,13 @@ class RecordingOperator(KeyedProcessFunction):
                     cast(str, self.config["context_sha256"]),
                 )
             self.state.update(packet.decode("utf-8"))
-            signature_count = len(object_value(snapshot["signatures"]))
-            duplicate = signature_count == self.signature_count
-            self.signature_count = signature_count
+            duplicate = runtime.signature_count == previous_count
             self.counters["duplicate" if duplicate else "accepted"].inc()
-            last_order = tuple(cast(list[int], snapshot["order"]))
-            if duplicate and event_order(event) < last_order:
+            if (
+                duplicate
+                and runtime.order is not None
+                and event_order(event) < runtime.order
+            ):
                 self.counters["late"].inc()
             if output is not None:
                 self.counters["gps"].inc()
