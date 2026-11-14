@@ -37,3 +37,30 @@ def test_batch_refuses_gaps_and_more_than_the_sql_bound() -> None:
         batch.add(0, offset, {})
     with pytest.raises(ValueError, match="recording_output_offset"):
         batch.add(0, MAX_BATCH, {})
+
+
+def test_stop_after_sql_ack_before_cursor_rereads_the_same_batch() -> None:
+    """The durable cursor stays behind until it is written, so restart repeats."""
+    disk: Document = {"0": 3}
+
+    class Stopped(Exception):
+        pass
+
+    def stop_before_cursor() -> None:
+        raise Stopped
+
+    written: list[list[Document]] = []
+    batch = ServingBatch(dict(disk))
+    batch.add(0, 3, {"id": "a"})
+    batch.add(0, 4, {"id": "b"})
+    with pytest.raises(Stopped):
+        batch.flush(written.append, stop_before_cursor)
+    assert written == [[{"id": "a"}, {"id": "b"}]] and disk == {"0": 3}
+
+    # A restarted worker starts from the durable cursor and accepts the same
+    # offsets again; only a completed persist moves the cursor past them.
+    restarted = ServingBatch(dict(disk))
+    restarted.add(0, 3, {"id": "a"})
+    restarted.add(0, 4, {"id": "b"})
+    restarted.flush(written.append, lambda: disk.update(restarted.committed))
+    assert written[0] == written[1] and disk == {"0": 5}
