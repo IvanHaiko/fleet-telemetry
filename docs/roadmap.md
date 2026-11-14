@@ -96,12 +96,15 @@ Work in this order:
    was 1,134 s. Serving kept up with the output topic; the Flink association
    operator rewrites its whole growing state on every event and falls behind
    ([ADR-0052](adr/0052-single-machine-recording-profile.md#second-complete-run-2026-11-14)).
-   Bounded per-event operator state is the next task before step 3.
+   *Done 2026-11-14:* after the operator state change, the complete flight kept
+   SQL current within the predeclared visibility and drain limits
+   ([ADR-0052](adr/0052-single-machine-recording-profile.md), run `f09-full-20261114-151300`).
 3. **Prove the selected retry/recovery boundaries.** Reuse existing mechanisms
    and failure evidence. Demonstrate a serving interruption after SQL ACK but
    before cursor publication, pause/resume, duplicate-safe results and an isolated
    archive-only rebuild without resetting the original run. State which broker,
    Flink and host failures remain outside the verified profile.
+   A worker-level restart test covers the serving SQL ACK/cursor boundary; the live interruption remains open.
 4. **Connect the reviewed SITL source to the same responsibilities.** Retain
    original capture, source/session identity and untimed/missing-stream limits.
    Show receipt/collector uncertainty correctly during source silence and gateway

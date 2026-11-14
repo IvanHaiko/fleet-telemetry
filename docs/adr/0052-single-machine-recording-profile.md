@@ -1,10 +1,13 @@
 # ADR-0052: Single-machine F09 recording profile
 
-**Status:** Proposed, 2026-11-13. The complete flight ran locally on this profile;
-see [the run evidence](#complete-flight-run-2026-11-13). The run needed one fix
-during execution, and a second run shows the Flink association operator
-falling behind 1x (see [the second run](#second-complete-run-2026-11-14)), so the profile is not
-marked validated.
+**Status:** Accepted, 2026-11-14. FT-P1 bounds the amount of operator state
+updated per delivery. Run `f09-full-20261114-151300` replayed the complete
+flight at 1x and met both predeclared limits: maximum observed SQL visibility
+age was 2 s (the sampling interval) against a 15 s limit, and terminal drain
+was 0 s against a 30 s limit. The SQL content hashes matched all 21,054
+reference facts exactly. Checkpoint size grows with the number of distinct
+identities and reached 5.85 MB at the end of the flight. Recovery from a live
+checkpoint remains unverified.
 
 ## Problem
 
