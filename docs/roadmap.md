@@ -853,9 +853,9 @@ or general real-source acceptance.
 - All evidence identifies code/configuration versions, dataset checksums and workload; no secrets or unapproved location data are released.
 - The demo includes one failure and its recovery, plus a source-to-query reconciliation result.
 
-**Testing expectations:** a fresh-environment rehearsal, link and command review, CI execution and a privacy / secret review of release artifacts. Git publication remains a separate user action.
+**Testing expectations:** a fresh-environment rehearsal, link and command review, CI execution and a privacy / secret review of release artifacts. Publishing to Git is a separate release step.
 
-**Out of scope:** unrequested Git commits or pushes, cloud deployment, AI and unrelated portfolio projects.
+**Out of scope:** cloud deployment, edge AI research and unrelated portfolio projects.
 
 ## M8 — Optional Terraform-managed AWS deployment
 

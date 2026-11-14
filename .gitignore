@@ -7,23 +7,6 @@ __pycache__/
 *.py[cod]
 .local-discovery/
 
-# Local coding-assistant instructions and configuration.
-AGENTS.md
-AGENTS.override.md
-CLAUDE.md
-GEMINI.md
-SKILL.md
-.agents/
-.codex/
-.claude/
-.cursor/
-.cursorrules
-.cursorignore
-.aider*
-.github/copilot-instructions.md
-.github/instructions/
-.github/prompts/
-
 # Local credentials and private configuration.
 .env
 .env.*
