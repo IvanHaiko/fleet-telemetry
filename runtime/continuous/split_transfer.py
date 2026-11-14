@@ -19,7 +19,6 @@ DIRECTORIES = {
     "tests",
     "docs",
     "contributions",
-    ".github",
 }
 SUFFIXES = {
     ".py",
@@ -73,18 +72,9 @@ def safe_relative(name: str) -> PurePosixPath:
 
 
 def allowed_source(name: str) -> bool:
-    """Use a source allowlist; ignored/private/runtime data never enter the ZIP."""
+    """Apply portable path, source-type and private-data restrictions."""
     path = safe_relative(name)
-    if path.name.lower() in {
-        "agents.md",
-        "agents.override.md",
-        "claude.md",
-        "gemini.md",
-        "skill.md",
-        "copilot-instructions.md",
-    } or path.parts[:2] in {(".github", "instructions"), (".github", "prompts")}:
-        return False
-    if any(part.startswith(".") and part != ".github" for part in path.parts[:-1]):
+    if any(part.startswith(".") for part in path.parts[:-1]):
         return False
     if any(
         part in ("__pycache__", "node_modules", "venv", "data", "checkpoints")
@@ -121,7 +111,7 @@ def allowed_source(name: str) -> bool:
 
 
 def export_source(target: Path, root: Path = ROOT) -> None:
-    """Freeze current tracked/untracked source bytes without requiring a commit."""
+    """Freeze tracked and non-ignored untracked source using Git's ignore rules."""
     root = root.resolve(strict=True)
     names = (
         subprocess.check_output(
@@ -163,7 +153,12 @@ def export_source(target: Path, root: Path = ROOT) -> None:
 
 
 def verify_source(directory: Path) -> None:
-    """Check archive bytes, exact inventory and bounded contents before extraction."""
+    """Check archive bytes, exact inventory and bounded contents before extraction.
+
+    Ignore rules belong to the exporting repository and are unavailable here.
+    Structurally allowed members are accepted even if ignored at the source;
+    this check cannot establish whether the exporter applied its ignore rules.
+    """
     for name in ("source.zip", "source-manifest.json"):
         expected = (directory / (name + ".sha256")).read_text().strip()
         if checksum((directory / name).read_bytes()) != expected:
