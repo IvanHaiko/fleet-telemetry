@@ -96,6 +96,12 @@ lifetime cap is 3,600 seconds. The local control-file read cap is 64 MiB,
 because the complete reference is 29,632,734 bytes. The 16-MiB snapshot cap is
 unchanged.
 
+*Correction, 2026-11-14:* the output-offset cap does not equal the preparation
+cap. The serving worker admits partition-local output offsets below twice the
+delivery cap (`runtime/continuous/recording_worker.py`), which leaves room for
+redelivery by the at-least-once output sink. The delivery and signature caps are
+as stated.
+
 Archive objects keep their 16-MiB cap, and SeaweedFS also caps files at 16 MB.
 The reference is therefore archived as complete-line parts of at most 8 MiB,
 written before an index object named `reference-parts.json`. The complete F09

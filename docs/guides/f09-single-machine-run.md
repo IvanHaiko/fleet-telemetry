@@ -80,13 +80,20 @@ Never use `down -v`; it would delete the retained evidence.
 
 ## Checks to record during the run
 
-These have only static or fake-boundary checks so far:
+Run `f09-full-20261113-002` recorded each of these;
+[ADR-0052](../adr/0052-single-machine-recording-profile.md#complete-flight-run-2026-11-13)
+has the figures. A later run records the same items:
 
-- SQL advances while the publisher is still running.
+- SQL advances while the publisher is still running. In the first run it kept up
+  only for the first 10,000 facts.
 - Stopping `archive-worker` holds SQL at the archived prefix, and SQL catches up
   after `archive-worker` starts again from its durable cursor.
-- Two duplicate deliveries add physical rows but no logical facts.
+- The two declared duplicate input deliveries reach neither the output topic nor
+  SQL: Flink suppresses them. Physical SQL repeats come only from retried SQL
+  writes, which [ADR-0050](../adr/0050-integrated-f09-runtime.md#local-evidence-2026-11-11)
+  exercised for the 60-second interval and the complete run did not.
 - The `points` view and the one-second dashboard buckets stay inside the
-  ClickHouse and Grafana budgets at full size.
-- The four reference parts upload to SeaweedFS and read back.
-- Peak CPU, memory and volume sizes from `resources.jsonl`.
+  ClickHouse and Grafana budgets at full size, through Grafana's datasource.
+  Browser rendering is a separate check, not yet made.
+- The multipart reference uploads to SeaweedFS and reads back.
+- Peak CPU, memory, PIDs and volume sizes from `resources.jsonl`.

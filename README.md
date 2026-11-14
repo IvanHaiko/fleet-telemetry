@@ -59,7 +59,7 @@ flowchart LR
   related upstream pull request, and a narrow fallback fix.
   [Package](contributions/confluent-kafka-uuid-int64/README.md)
 - **Engineering hygiene.** 660+ tests, strict mypy, CI passing on Windows and Linux,
-  pinned images and lockfiles, and 51 [architecture decision records](docs/adr/).
+  pinned images and lockfiles, and 52 [architecture decision records](docs/adr/).
 
 ## Quickstart: Kafka and Flink on one machine
 
@@ -159,7 +159,7 @@ This is a working local research prototype, not a production system.
 | One-machine Kafka/Flink starter | Synthetic runs reconcile end to end | Checkpoint restore in the starter |
 | Synthetic conversion | Deterministic events, identity and manifest checks | Arbitrary devices and firmware |
 | Archive, ClickHouse, Grafana | Replay, deduplication and selected failure/recovery checks on synthetic data | Production recovery; hosted CI for the broker lane |
-| Real flight (F09) | Complete 39-minute flight through the full path on one machine | SQL write throughput at 1x; checkpoint restore |
+| Real flight (F09) | Complete 39-minute flight through the full path on one machine | Keeping SQL current at 1x (Flink association state cost); checkpoint restore |
 | PX4 simulator (SITL) | Live position from source to SQL; a continuous session | Physical vehicles and radio links |
 
 F09 is a public fixed-wing research flight log; SITL is PX4's

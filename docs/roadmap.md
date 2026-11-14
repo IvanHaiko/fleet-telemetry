@@ -23,6 +23,12 @@ advancing SQL, exact independent archival, the serving pause/resume boundary,
 the selected interval, not full MVP or full-flight acceptance. Its 4,096-delivery
 guard and untested checkpoint restoration remain in force.
 
+*Update 2026-11-13:* the guard is raised to the 50,000-event preparation cap
+([ADR-0050](adr/0050-integrated-f09-runtime.md#full-recording-bounds-2026-11-13)),
+and the complete flight has run
+([ADR-0052](adr/0052-single-machine-recording-profile.md#complete-flight-run-2026-11-13)).
+Checkpoint restoration remains untested. Step 2 below has the current status.
+
 The next product increment is full-recording operation under reviewed resource
 and evidence bounds, followed by the remaining recovery/lifecycle criteria below.
 Repository publication preparation adds no new milestone or runtime acceptance.
@@ -84,6 +90,13 @@ Work in this order:
    exhaustion, was fixed and the worker resumed from its cursor, so this is not
    a clean uninterrupted run. SQL kept up with publication only for the first
    10,000 facts. Batching serving writes is the next small task before step 3.
+   *Status 2026-11-14:* batched serving writes are implemented and unit-checked.
+   *Status 2026-11-14, run:* a second complete run reconciles exactly again but
+   fails the predeclared limit (15 s visibility age, 30 s drain): the maximum age
+   was 1,134 s. Serving kept up with the output topic; the Flink association
+   operator rewrites its whole growing state on every event and falls behind
+   ([ADR-0052](adr/0052-single-machine-recording-profile.md#second-complete-run-2026-11-14)).
+   Bounded per-event operator state is the next task before step 3.
 3. **Prove the selected retry/recovery boundaries.** Reuse existing mechanisms
    and failure evidence. Demonstrate a serving interruption after SQL ACK but
    before cursor publication, pause/resume, duplicate-safe results and an isolated
@@ -210,8 +223,9 @@ is implied.
 
 M0 is the documentation foundation delivered in this directory. M1-M7 define the
 local Version 1 release. M1 includes pure normalization, a bounded integrity
-gate, an optional pinned reader and local file conversion. CI is configured;
-hosted execution and real-source acceptance remain pending. M2 is accepted for
+gate, an optional pinned reader and local file conversion. Hosted CI runs the M1
+checks on Windows and Linux (see [M1](#m1--data-sources-and-deterministic-replay));
+real-source acceptance remains pending. M2 is accepted for
 the local synthetic ingestion profile under ADR-0017; M3 is accepted for the bounded local synthetic profile under
 ADR-0022/0023 and its evidence. M4 is accepted for
 the closed bounded synthetic profile under ADR-0032. M5 is
@@ -340,6 +354,15 @@ platform restriction while retaining the no-overwrite contract. The shared
 [M1 command](guides/m1-checks.md) now supports Windows and Linux, with both dependency
 profiles configured in CI. Local portability evidence does not replace hosted
 CI or actual-source acceptance.
+
+*Hosted CI, 2026-11-13:* after publication, the `CI` workflow ran the M1 checks
+on GitHub-hosted `windows-2025` and `ubuntu-24.04` runners for both dependency
+profiles. The first run, on the initial commit, failed because ULog-dependent
+tests ran without the `ulog` extra; `bd1a743` skips them in that case. Every run
+since has passed, including run 43513356157 on `123ff43`, where all four jobs
+passed. This closes the hosted-execution part of M1. Reviewed real-source
+evidence remains open, and the manual broker workflow (`m2.yml`) has not run on
+a hosted runner.
 
 **Scope:** one battery measurement mapping, tiny provenance-reviewed inputs, canonical event identity and bounded file replay. Begin with a synthetic native-record fixture and add one public ULog sample only after rights and timestamp review.
 

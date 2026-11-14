@@ -1,5 +1,9 @@
 # M1 setup checks and CI
 
+*Hosted status, 2026-11-13:* the configured matrix now runs on GitHub-hosted
+runners and passes; the [roadmap](../roadmap.md#m1--data-sources-and-deterministic-replay)
+records the runs. Statements below that CI is not yet hosted are historical.
+
 ## Scope and commands
 
 This 2026-10-19 follow-up prepares CI and exercises the existing M1 checks in

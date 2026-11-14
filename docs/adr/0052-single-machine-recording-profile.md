@@ -2,7 +2,8 @@
 
 **Status:** Proposed, 2026-11-13. The complete flight ran locally on this profile;
 see [the run evidence](#complete-flight-run-2026-11-13). The run needed one fix
-during execution and leaves SQL write throughput open, so the profile is not
+during execution, and a second run shows the Flink association operator
+falling behind 1x (see [the second run](#second-complete-run-2026-11-14)), so the profile is not
 marked validated.
 
 ## Problem
@@ -201,6 +202,99 @@ with two readback queries. Its rate fell from about 18 to about 5 facts per
 second as the table grew, below the GPS rate of about 9 per second. Batching
 serving writes (the SQL client already admits up to 64) is the next small task.
 
+**Batched serving, 2026-11-14 (implemented, not yet run).** The serving worker
+now collects up to 64 archive-admitted outputs and writes them with one
+`write_facts` call, so the scope check, the two readbacks and the insert run once
+per batch instead of once per fact. It does not wait to fill a batch: an empty
+poll, a full batch or an output still waiting for the archive flushes what is
+verified, so a caught-up worker writes as before and a backlog drains in batches.
+Each output's evidence file is still written before the SQL write. The cursor
+advances for every member only after the writer confirms the whole batch is
+reader-visible (`runtime/continuous/recording_batch.py`); a failed write or a
+crash leaves it at the last confirmed batch, and restart rereads every member.
+A reread batch can add physical rows but no logical facts, as for any SQL retry.
+The completion check, which counts distinct identities, now runs on the
+half-second status tick; after publication ended it used to run on every loop
+iteration. Whether this keeps SQL
+current at 1x needs a new complete run against a criterion the maintainer sets
+before it starts.
+
+*Correction, 2026-11-14:* the second complete run (below) shows that the lag
+above came from the Flink association operator, not from serving writes. The
+first run did not measure the output topic separately, so its attribution to
+serving was an inference, and it was wrong.
+
+## Second complete run, 2026-11-14
+
+Run `f09-full-20261114-001` used a fresh bundle, reference and scope at commit
+`123ff43` plus the uncommitted batched serving change; the diff is retained with
+the restricted evidence. The reference has the same 21,054 measurement
+identities as the first run's. Nothing was recreated, paused or rescued during
+the run.
+
+**Criterion, recorded before the run.** One observer container in the archive
+namespace sampled the producer status and the set of SQL-visible GPS input
+offsets every 2 seconds on one clock. For every GPS fact, visibility age is the
+first sample in which it is SQL-visible minus the first sample in which its
+delivery is acknowledged. The run passes if the maximum is at most 15 seconds
+and the terminal drain, from producer completion to all facts visible, is at
+most 30 seconds. Each figure carries up to one sample interval of error on each
+side.
+
+**Correctness.** The publisher paced 39,760 deliveries from 12:04:05 to
+12:43:32 UTC, and all facts were SQL-visible at 13:02:26. The independent reconciliation
+equals the first run's: SQL `fact_json` hashes equal the reference set (21,054),
+with 21,054 physical rows, no repeated identity, no conflicting content and the
+same association counts. Flink completed 366 of 367 checkpoints; the one failure
+was again the trigger at submission. Initialization succeeded on the first
+attempt with the topic readback retry.
+
+**The run fails the criterion.**
+
+| Measure | Result | Limit |
+| --- | ---: | ---: |
+| Samples, gaps over 10 s, observation errors | 1,770, 0, 0 | |
+| Visibility age, median | 42 s | |
+| Visibility age, 99th percentile | 1,096 s | |
+| Visibility age, maximum | 1,134 s | 15 s |
+| Facts over 15 s | 11,726 of 21,054 | 0 |
+| Terminal drain | 1,134 s | 30 s |
+
+The maximum age stayed within 4 seconds up to about 5,500 facts.
+
+**The bottleneck is the Flink association operator.** At 12:34 UTC Kafka held
+30,782 input records and 14,106 output facts, and SQL held 14,041. Serving
+stayed within a few dozen facts of the output topic throughout:
+
+- Over the whole run its largest batch was 34 facts, against the 64 it admits.
+  Most batches held one fact; most of the rest held 7 or 8, which matches how
+  Flink emits output.
+- Each insert took about 4.5 ms, with no growth as the table filled.
+- The serving worker used about 6% CPU at 12:33 and was waiting on its consumer.
+
+The TaskManager peaked at 116% CPU against its two-CPU limit, which fits one
+Python worker thread saturating one core.
+
+The cause is in `runtime/pyflink/recording_operator.py`. For every input event,
+it takes a full `RecordingRuntime.snapshot()`, serializes it to JSON and
+replaces the operator's `ValueState` with it. The snapshot holds every
+duplicate-detection signature and the whole battery history, so it grows with
+the input. Checkpointed state reached 4.3 MB by about 30,000 deliveries and
+6,408,582 bytes at the end. The work per event therefore grows linearly, and
+the work for the flight grows quadratically. Average checkpoint duration was
+6.9 s and the maximum 38.7 s, because checkpoint barriers wait behind the
+backlog.
+
+**Peak resources** from 362 samples: ClickHouse 1,517 MiB and 284 PIDs,
+TaskManager 1,109 MiB, Kafka 704 MiB, serving worker 442 MiB.
+
+**Consequence.** Batched serving writes are correct and cheaper, but they do not
+address this lag. Keeping SQL current at 1x needs operator state that changes
+by a bounded amount per event. One option is to keep signatures and battery
+history in append-only `MapState` and only the bounded association context in
+`ValueState`. That changes the job's state format, so earlier checkpoints would
+not restore into it; each run already uses a fresh checkpoint scope.
+
 **Peak resources** from 364 samples at 10-second intervals, with no sample gaps:
 
 | Container | Memory | CPU | PIDs |
@@ -223,5 +317,5 @@ did not separate the ClickHouse system-log tables or Kafka's preallocated index
 files from the data itself.
 
 **Not established.** Checkpoint restore, broker or host failure, SQL retry
-duplicates, browser rendering of the dashboard, and 1x SQL throughput for the
+duplicates, browser rendering of the dashboard, and 1x SQL currency for the
 whole flight.

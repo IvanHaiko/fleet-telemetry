@@ -9,6 +9,7 @@ from pathlib import Path
 
 from runtime.continuous.kafka import observation
 from runtime.continuous.recording_archive import VerifiedInputs, archive
+from runtime.continuous.recording_batch import ServingBatch
 from runtime.continuous.recording_config import (
     MAX_BODY,
     MAX_DELIVERIES,
@@ -78,6 +79,7 @@ def serve(config: Document, root: Path) -> None:
     last = 0.0
     gate: VerifiedInputs | None = None
     pending: Document | None = None
+    batch = ServingBatch(next_offsets)
     try:
         while not stopped() and time.monotonic() < deadline:
             # Archive may not yet have registered its immutable control evidence.
@@ -87,16 +89,21 @@ def serve(config: Document, root: Path) -> None:
                     continue
                 gate = VerifiedInputs(config, reader, root)
             gate.advance()
-            if pending is None:
-                message = consumer.poll(0.1)
-                if message is not None:
+            idle = False
+            if pending is None and not batch.full():
+                # Gather already fetched outputs without waiting; an empty poll
+                # flushes, so a batch adds no delay once serving has caught up.
+                message = consumer.poll(0 if batch.outputs else 0.1)
+                if message is None:
+                    idle = True
+                else:
                     pending = observation(message, source)
-            if pending is not None:
+            if pending is not None and not batch.full():
                 partition = integer_value(pending["partition"])
                 offset = integer_value(pending["offset"])
                 require(
                     0 <= partition < kafka.partitions
-                    and offset == next_offsets[str(partition)]
+                    and offset == batch.expected(partition)
                     and offset < MAX_DELIVERIES * 2,
                     "recording_output_offset",
                 )
@@ -109,25 +116,27 @@ def serve(config: Document, root: Path) -> None:
                         outputs / f"p{partition:02d}-{offset:020d}.json",
                         json_line(pending),
                     )
-                    sql.write_facts([output])
-                    next_offsets[str(partition)] = offset + 1
-                    durable_cursor(path, state)
+                    batch.add(partition, offset, output)
                     pending = None
+            # A pending output here waits for the archive; write what is verified.
+            if batch.full() or idle or pending is not None:
+                batch.flush(sql.write_facts, lambda: durable_cursor(path, state))
             now = time.monotonic()
-            if now - last >= 0.5:
-                # SQL, not this process's memory, is authoritative after restarts.
-                logical = sql.logical_count()
-                sql.progress("running", len(gate.rows), logical, len(gate.facts))
-                durable_cursor(
-                    root / "serving-status.json",
-                    {
-                        "input_archived": len(gate.rows),
-                        "logical_facts": logical,
-                        "outputs_next": next_offsets,
-                        "written_ms": time.time_ns() // 1000000,
-                    },
-                )
-                last = now
+            if now - last < 0.5:
+                continue
+            last = now
+            # SQL, not this process's memory, is authoritative after restarts.
+            logical = sql.logical_count()
+            sql.progress("running", len(gate.rows), logical, len(gate.facts))
+            durable_cursor(
+                root / "serving-status.json",
+                {
+                    "input_archived": len(gate.rows),
+                    "logical_facts": logical,
+                    "outputs_next": next_offsets,
+                    "written_ms": time.time_ns() // 1000000,
+                },
+            )
             producer_path = root / "producer-status.json"
             producer = (
                 json_object(read_bounded(producer_path, 8192))
@@ -138,7 +147,8 @@ def serve(config: Document, root: Path) -> None:
                 producer.get("status") == "completed"
                 and len(gate.rows) == len(gate.wires)
                 and pending is None
-                and sql.logical_count() == len(gate.facts)
+                and not batch.outputs
+                and logical == len(gate.facts)
                 and sql.logical_ids() == set(gate.facts)
             ):
                 logical = len(gate.facts)
