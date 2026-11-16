@@ -159,6 +159,8 @@ services:
     networks:
       default:
         aliases: [storage]
+      # Live SITL packets reach the gateway in this namespace (ADR-0054).
+      live-source: {}
     volumes:
       - archive-data:/data
       - {type: bind, source: ../runtime/s3/archive-master.toml, target: /etc/seaweedfs/master.toml, read_only: true, bind: {create_host_path: false}}
@@ -240,6 +242,58 @@ services:
     <<: *worker
     command: [runtime.continuous.recording_worker, publish, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/prepare.py first}/config/publish.json"]
 
+  # Live PX4 SITL source (ADR-0054); start with --profile live.
+  live-initialize:
+    <<: *worker
+    profiles: [live]
+    command: [runtime.continuous.live_initialize, --private, /private, --evidence, /evidence]
+
+  live-gateway:
+    <<: *worker
+    profiles: [live]
+    environment:
+      PYTHONPATH: /workspace:/deps
+    volumes:
+      - evidence:/evidence
+      - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/live_prepare.py first}", target: /private, read_only: true, bind: {create_host_path: false}}
+      # Retained pymavlink 2.4.50 directory of ADR-0045; nothing is installed.
+      - {type: bind, source: "${RECORDING_LIVE_PACKAGES:-/nonexistent}", target: /deps, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 256m
+    command: [runtime.continuous.live_worker, gateway, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/live_prepare.py first}/config/gateway.json"]
+
+  live-archive-worker:
+    <<: *worker
+    profiles: [live]
+    command: [runtime.continuous.live_worker, archive, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/live_prepare.py first}/config/archive.json"]
+
+  live-serving-worker:
+    <<: *worker
+    profiles: [live]
+    command: [runtime.continuous.live_worker, serve, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/live_prepare.py first}/config/serve.json"]
+
+  px4-sitl:
+    image: px4io/px4-sitl@sha256:39d5a950208a5a45fccbbb0670bd8716663ed0b350ef738447581395e0c92d97
+    profiles: [live]
+    pull_policy: never
+    entrypoint: [/opt/px4/bin/px4]
+    command: [-i, "0"]
+    # The PX4 shell needs a terminal; no flight command is ever sent.
+    stdin_open: true
+    tty: true
+    environment:
+      PX4_SIM_MODEL: sihsim_quadx
+      PX4_HOME_LAT: "47.3982"
+      PX4_HOME_LON: "8.5463"
+      PX4_HOME_ALT: "490"
+    networks: [live-source]
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+
 volumes:
   kafka-data:
   state:
@@ -252,3 +306,8 @@ networks:
   default:
     ipam:
       config: [{subnet: "${RECORDING_SUBNET:-10.253.240.16/28}"}]
+  # Internal only: the simulator has no route outside this network.
+  live-source:
+    internal: true
+    ipam:
+      config: [{subnet: "${RECORDING_LIVE_SUBNET:-10.253.240.32/28}"}]

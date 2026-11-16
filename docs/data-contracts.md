@@ -111,6 +111,30 @@ age is separate from source time and heartbeat presence. Sentinels remain NULL;
 repeated native positions do not renew freshness. No historical contract or
 checkpoint schema changes; unsigned-wire replay and physical boot proof remain open.
 
+The [live SITL recording-profile source](adr/0054-live-sitl-recording-profile.md)
+defines four profiles outside the canonical envelope:
+
+- `px4-live-event-v1` (`telemetry/live_event.py`) carries position from
+  GLOBAL_POSITION_INT, a battery summary from SYS_STATUS and mode codes from
+  HEARTBEAT. Native integers are kept as sent, including sentinels.
+- `px4-live-session-v1` declares the source scope and the receipt age limit.
+- `px4-live-fact-v1` and `px4-live-output-v1` (`telemetry/live_runtime.py`)
+  carry the converted position and its battery and state associations.
+
+Identity and time follow ADR-0045:
+
+- A position keeps the boot-session/system/component/native-ms identity.
+- Battery and state have NULL measurement time and identity. Their Kafka key
+  is a receipt identity: the gateway epoch and capture sequence.
+- Gateway receipt Unix milliseconds are delivery metadata.
+
+Each position takes the latest battery and state preceding it in input-topic
+order. The association status is `receipt_ordered`, `stale`,
+`unknown_after_restart` or `none`. Values appear only with `receipt_ordered`,
+and the association is never presented as one by measurement time. A position
+repeated under another receipt is a repeat; competing content at the same
+native time refuses. No existing contract changes.
+
 The [second recording and shared projection](guides/two-recording-view.md#shared-storage-and-interface)
 add `f01-recording-inspection-v1`, source-bound `f01-state-research-v1` identities
 and `recording-view-v1`. F01 observations are commander records with native time;

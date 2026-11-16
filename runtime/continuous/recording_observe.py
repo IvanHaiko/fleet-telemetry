@@ -7,6 +7,10 @@ positions, not measurement or vehicle identifiers. A failed observation is
 recorded as an explicit error, never as an unchanged value. It changes nothing
 in the run and stops by itself once every expected fact has been visible for
 the settle time, on SIGTERM, or at its lifetime bound.
+
+For a live SITL session (ADR-0054) the gateway status stands in for the
+producer, and each sample also records the `live_state` connection and ages
+with flags for which current values are shown, never the values themselves.
 """
 
 import argparse
@@ -33,7 +37,9 @@ def observe(
     private: Path, evidence: Path, out: Path, expected: int, interval: float
 ) -> int:
     secrets = json_object(read_bounded(private / "secrets.json", 65536))
-    run = json_object(read_bounded(private / "run.json", 65536))
+    live = (private / "live-run.json").exists()
+    plan = "live-run.json" if live else "run.json"
+    run = json_object(read_bounded(private / plan, 65536))
     database = string_value(run["database"])
     state = evidence / string_value(run["run_id"]) / "state"
     sql = HttpConfig(
@@ -54,7 +60,9 @@ def observe(
         while not stopped and time.monotonic() - began < _MAX_LIFETIME_S:
             tick = time.monotonic()
             now = time.time_ns() // 1_000_000
-            producer = _status(state / "producer-status.json")
+            producer = _status(
+                state / ("gateway-status.json" if live else "producer-status.json")
+            )
             archive = _status(state / "archive-status.json")
             serving = _status(state / "serving-status.json")
             error = None
@@ -69,9 +77,26 @@ def observe(
             except Exception as failure:  # recorded, never hidden
                 error = type(failure).__name__
             seen.update(new)
+            shown: object = None
+            if live:
+                try:
+                    body = _request(
+                        sql,
+                        "SELECT connection, collector_age_ms, serving_age_ms, "
+                        "source_receipt_age_ms, position_receipt_age_ms, "
+                        "battery_status, state_status, "
+                        "latitude_deg IS NOT NULL AS position_shown, "
+                        "voltage_v IS NOT NULL AS battery_shown, "
+                        "armed IS NOT NULL AS state_shown "
+                        f"FROM {database}.live_state FORMAT JSONEachRow",
+                        b"",
+                    )
+                    shown = json_object(body.splitlines()[0])
+                except Exception as failure:  # recorded, never hidden
+                    error = error or type(failure).__name__
             row = {
                 "t_ms": now,
-                "ack": producer.get("acknowledged"),
+                "ack": producer.get("published" if live else "acknowledged"),
                 "producer": producer.get("status"),
                 "archived": archive.get("input_next"),
                 "serving_archived": serving.get("input_archived"),
@@ -79,11 +104,17 @@ def observe(
                 "visible": len(seen),
                 "new": new,
                 "error": error,
+                **({"live": shown} if live else {}),
             }
             handle.write(json.dumps(row) + "\n")
             handle.flush()
             count += 1
-            if producer.get("status") == "completed" and len(seen) >= expected:
+            done = (
+                (state / "serving-complete.json").exists()
+                if live
+                else producer.get("status") == "completed" and len(seen) >= expected
+            )
+            if done:
                 complete_at = complete_at or now
                 if now - complete_at > 20_000:
                     break
@@ -99,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected", type=int, required=True)
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args(argv)
-    if not 0.5 <= args.interval <= 10 or not 1 <= args.expected <= 100_000:
+    if not 0.5 <= args.interval <= 10 or not 0 <= args.expected <= 100_000:
         print(json.dumps({"status": "failed", "category": "observe_bounds"}))
         return 2
     try:

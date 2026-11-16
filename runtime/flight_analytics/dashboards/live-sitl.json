@@ -1,0 +1,681 @@
+{
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "13.2.4"
+    },
+    {
+      "type": "datasource",
+      "id": "grafana-clickhouse-datasource",
+      "name": "ClickHouse",
+      "version": "4.23.2"
+    }
+  ],
+  "uid": "live-px4-sitl",
+  "title": "Live PX4 SITL session",
+  "description": "Live simulated source on the single-machine recording profile (ADR-0054).",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "utc",
+  "tags": [
+    "telemetry",
+    "live",
+    "px4-sitl",
+    "simulated"
+  ],
+  "refresh": "5s",
+  "timepicker": {
+    "hidden": true
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "database",
+        "type": "constant",
+        "hide": 2,
+        "skipUrlSync": true,
+        "query": "live_sitl_template_db",
+        "current": {
+          "text": "live_sitl_template_db",
+          "value": "live_sitl_template_db"
+        },
+        "options": [
+          {
+            "text": "live_sitl_template_db",
+            "value": "live_sitl_template_db",
+            "selected": true
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Live PX4 SITL session",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Simulated live source.** One PX4 SITL session through Kafka, Flink, the independent archive and archive-gated SQL (ADR-0054); not a physical vehicle or RF link. **Connection** is *observed* only while a source heartbeat arrived in the last 3 s and the gateway and serving reports are current; *stale* when the gateway is current but the source is silent; *unknown* when the gateway or serving report is missing or old. Current values show only while observed. Battery and state carry no measurement time: they are attached to a position by receipt order, never by measurement time."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Connection",
+      "type": "stat",
+      "description": "Derived from the gateway's own status time, the last source heartbeat receipt and serving progress. Missing data never renews health.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT connection FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Source receipt age",
+      "type": "stat",
+      "description": "Time since the last source heartbeat reached the gateway.",
+      "gridPos": {
+        "x": 4,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT source_receipt_age_ms / 1000 AS age_s FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Collector age",
+      "type": "stat",
+      "description": "Time since the gateway last wrote its status.",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT collector_age_ms / 1000 AS age_s FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Serving age",
+      "type": "stat",
+      "description": "Time since serving last recorded progress.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT serving_age_ms / 1000 AS age_s FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Logical positions",
+      "type": "stat",
+      "description": "Distinct position identities in SQL.",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT uniqExact(event_id) AS positions FROM ${database}.points SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Gateway status",
+      "type": "stat",
+      "description": "Last gateway status copied by serving.",
+      "gridPos": {
+        "x": 20,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT argMax(gateway_status, gateway_written_ms) AS status FROM ${database}.collector SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Altitude (MSL)",
+      "type": "stat",
+      "description": "Current value only while observed.",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT altitude_msl_m FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "lengthm"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Ground speed",
+      "type": "stat",
+      "description": "Current value only while observed.",
+      "gridPos": {
+        "x": 4,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ground_speed_m_s FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "velocityms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Battery voltage",
+      "type": "stat",
+      "description": "SYS_STATUS summary attached by receipt order; Unknown unless observed and receipt-ordered.",
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT voltage_v FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "volt"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "title": "Battery remaining",
+      "type": "stat",
+      "description": "SYS_STATUS summary; Unknown unless observed and receipt-ordered.",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT remaining_fraction FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown",
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "title": "Battery association",
+      "type": "stat",
+      "description": "Status of the battery attached to the latest position.",
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT battery_status FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "title": "State association",
+      "type": "stat",
+      "description": "Status of the state attached to the latest position.",
+      "gridPos": {
+        "x": 20,
+        "y": 8,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT state_status FROM ${database}.live_state SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "title": "Latest positions",
+      "type": "table",
+      "description": "Newest 50 positions by input order. Native boot seconds have an unverified clock basis.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "format": 1,
+          "rawSql": "SELECT input_offset, native_seconds, altitude_msl_m, relative_altitude_m, ground_speed_m_s, battery_status, battery_receipt_age_ms, state_status, state_receipt_age_ms, armed FROM ${database}.points ORDER BY input_offset DESC LIMIT 50 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

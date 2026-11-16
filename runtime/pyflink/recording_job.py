@@ -1,4 +1,8 @@
-"""Submit the bounded recording Kafka -> managed association -> Kafka job."""
+"""Submit the recording Kafka -> managed association -> Kafka job.
+
+The configuration's format selects the F09 recording lane or the live PX4 SITL
+lane (ADR-0054); each has its own operator state names and UIDs.
+"""
 
 import argparse
 import os
@@ -28,6 +32,8 @@ from telemetry.continuous_connection import (
 from telemetry.conversion_contract import json_line, json_object
 from telemetry.recording_runtime import MAX_SNAPSHOT_BYTES
 
+from live_operator import JOB_PROFILE as LIVE_JOB
+from live_operator import LiveOperator, validate_live_config
 from recording_operator import RecordingOperator, validate_config
 
 _RETAINED = re.compile(r"(?P<job>[0-9a-f]{32})/chk-(?P<id>[1-9][0-9]{0,8})")
@@ -63,7 +69,11 @@ def run(path: Path, restore: str | None = None) -> None:
     if len(raw_config) > MAX_SNAPSHOT_BYTES:
         raise ValueError("recording_job_config_limit")
     config = json_object(raw_config)
-    validate_config(config)
+    live = config.get("format_version") == LIVE_JOB
+    if live:
+        validate_live_config(config)
+    else:
+        validate_config(config)
     job_path = Path(cast(str, config["job_file"]))
     plan_path = job_path.with_name(f"{config['run_id']}-execution-plan.json")
     checkpoint_path = Path("/state") / f"{config['run_id']}-checkpoints"
@@ -121,6 +131,7 @@ def run(path: Path, restore: str | None = None) -> None:
         ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION
     )
     env.add_python_file(str(Path(__file__).with_name("recording_operator.py")))
+    env.add_python_file(str(Path(__file__).with_name("live_operator.py")))
     tables = StreamTableEnvironment.create(env)
     connection = parse_connection(config["kafka_connection"])
     if connection is None:
@@ -150,12 +161,14 @@ def run(path: Path, restore: str | None = None) -> None:
       )
     """)
     source = tables.to_data_stream(tables.from_path("recording_input"))
+    operator = LiveOperator(config) if live else RecordingOperator(config)
+    lane = "live" if live else "recording"
     processed = (
-        source.key_by(lambda row: "recording", key_type=Types.STRING())
-        .process(RecordingOperator(config), output_type=Types.STRING())
+        source.key_by(lambda row: lane, key_type=Types.STRING())
+        .process(operator, output_type=Types.STRING())
         .set_parallelism(1)
-        .name("recording-association")
-        .uid("recording-association-v1")
+        .name(f"{lane}-association")
+        .uid(f"{lane}-association-v1")
     )
     serializer = (
         KafkaRecordSerializationSchema.builder()
@@ -175,8 +188,8 @@ def run(path: Path, restore: str | None = None) -> None:
         .set_property("linger.ms", "0")
         .build()
     )
-    processed.sink_to(sink).set_parallelism(1).name("recording-output").uid(
-        "recording-output-v1"
+    processed.sink_to(sink).set_parallelism(1).name(f"{lane}-output").uid(
+        f"{lane}-output-v1"
     )
     plan = env.get_execution_plan()
     # Exclusive files avoid overwriting earlier evidence. An interrupted submit

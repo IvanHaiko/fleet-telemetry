@@ -51,6 +51,7 @@ class Profile:
     out: Path
     private: Path
     paused: set[str] = field(default_factory=set)
+    profiles: tuple[str, ...] = ("run",)
 
     @property
     def compose(self) -> list[str]:
@@ -60,8 +61,7 @@ class Profile:
             str(ROOT / "compose/recording.yml"),
             "--env-file",
             str(self.private / "compose.env"),
-            "--profile",
-            "run",
+            *(item for name in self.profiles for item in ("--profile", name)),
         ]
 
     @property

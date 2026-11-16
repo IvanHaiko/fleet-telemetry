@@ -64,13 +64,21 @@ flowchart LR
   corrected, the second run passes every limit. The maintainer accepted it on
   that post-hoc basis, which the ADR records.
   [ADR-0053](docs/adr/0053-recording-recovery-boundaries.md)
+- **A live simulated source through the same path.** A PX4 SITL session went
+  through a gateway with durable raw capture, then Kafka, Flink, the archive,
+  SQL and Grafana. Battery and state, which carry no measurement time, are
+  attached to positions by receipt order. The live view showed *stale* during
+  a source silence and *unknown* while the gateway was down. SQL matched a
+  rebuild from the archive exactly.
+  [ADR-0054](docs/adr/0054-live-sitl-recording-profile.md),
+  [guide](docs/guides/live-sitl-recording-run.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The
   repository contains a reproduction, a native regression test prepared for the
   related upstream pull request, and a narrow fallback fix.
   [Package](contributions/confluent-kafka-uuid-int64/README.md)
 - **Engineering hygiene.** 690+ tests, strict mypy, CI passing on Windows and Linux,
-  pinned images and lockfiles, and 53 [architecture decision records](docs/adr/).
+  pinned images and lockfiles, and 54 [architecture decision records](docs/adr/).
 
 ## Quickstart: Kafka and Flink on one machine
 

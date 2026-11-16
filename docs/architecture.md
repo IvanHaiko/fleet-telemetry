@@ -47,6 +47,13 @@ measure
 ([acceptance basis](adr/0053-recording-recovery-boundaries.md#acceptance-2026-11-16)).
 Broker, JobManager and host failures remain outside the verified profile.
 
+*Update 2026-11-16, live source:* one PX4 SITL session reaches the same Kafka,
+Flink, archive, SQL and Grafana responsibilities through a capture gateway
+([ADR-0054](adr/0054-live-sitl-recording-profile.md)). Serving admits a live
+fact only as recomputed from the archived input, because no prepared reference
+exists. Battery and state are associated by receipt order, never by
+measurement time.
+
 ```mermaid
 sequenceDiagram
     participant K as Kafka input
@@ -831,6 +838,7 @@ adoption remains gated by producer, full firmware-definition and rights evidence
 | Bounded integrated F09 runtime | Proposed, locally demonstrated for one 60-second interval | [ADR-0050](adr/0050-integrated-f09-runtime.md) runs GPS/battery/state through Kafka, Flink, independent archival, archive-gated ClickHouse serving and Grafana; complete-flight bounds are checked offline for 39,760 deliveries; the complete-flight run is recorded under ADR-0052; checkpoint restore remains open |
 | Single-machine F09 recording profile | Proposed; complete flight demonstrated locally on 2026-11-13 | [ADR-0052](adr/0052-single-machine-recording-profile.md) adds one plaintext private broker with 12 partitions, loopback storage through a shared network namespace, and a hash-pinned worker image; 21,054 facts reconcile by content hash in two complete runs; the Flink association operator falls behind 1x and checkpoint restore remains open |
 | Recording recovery boundaries | Accepted 2026-11-16 on a post-hoc evaluation of the second complete-flight fault run; both runs failed the declared visibility limit | [ADR-0053](adr/0053-recording-recovery-boundaries.md) exercises TaskManager SIGKILL, resubmission from a retained checkpoint, a configured one-shot serving fault inside the SQL/cursor window, archive pause and an archive-only rebuild from one predeclared orchestrator; all correctness checks pass on the complete flight; serving start-up and an early-closing recovery window exceeded the 15 s visibility limit; the maintainer accepted the second run's post-hoc evaluation with the strict measure, which passes; broker, JobManager and host failures are not verified |
+| Live PX4 SITL source on the recording profile | Accepted 2026-11-16; run `live-s4-full-20261116-02` passed its predeclared criterion | [ADR-0054](adr/0054-live-sitl-recording-profile.md) adds a capture gateway, the `px4-live-event-v1` contract, a receipt-ordered Flink lane, an archive-recomputation serving gate and a `live_state` view; one boot session and one vehicle; unsigned MAVLink, physical vehicles and RF links are not covered |
 | Local S3-compatible distribution/client and conditional-write compatibility | M4 storage startup | [ADR-0024](adr/0024-m4-storage-compatibility.md) accepts the bounded pinned SeaweedFS/SDK foundation after live race/readback/permission checks, reviewed test supersessions and deterministic acceptance; checkpoint S3-plugin adoption stays separate |
 | Windows UUID native conversion | Any Windows Kafka publication | [ADR-0025](adr/0025-windows-kafka-uuid-repair.md) accepts the exact local SDK repair and observed full-width guard; earlier Windows identities still require audit |
 | Historical Windows topic identity trust | Reuse of pre-repair receipts | [ADR-0026](adr/0026-historical-topic-identity-qualification.md) qualifies 59 narrowed identities; independent attestations/migration remain required |

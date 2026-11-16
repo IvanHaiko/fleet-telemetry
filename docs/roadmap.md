@@ -131,6 +131,16 @@ Work in this order:
    Show receipt/collector uncertainty correctly during source silence and gateway
    restart. Synthetic fixtures remain for deterministic faults and edge cases;
    they do not replace the real-recording analytics product.
+   *Done 2026-11-16:* one PX4 SITL session ran through the gateway with durable
+   raw capture, Kafka, the Flink lane, the archive, archive-gated SQL and
+   Grafana on the recording profile
+   ([ADR-0054](adr/0054-live-sitl-recording-profile.md#second-evidence-run-2026-11-16)).
+   Run `live-s4-full-20261116-02` passed its predeclared criterion:
+   - capture without sequence gaps, and SQL equal to an archive-only rebuild;
+   - battery and state without measurement time, associated by receipt order;
+   - `unknown_after_restart` until new receipts after a gateway restart;
+   - the live view *stale* during source silence and *unknown* while the
+     gateway was down.
 5. **Close MVP operations and evidence.** One documented start/status/stop flow
    must verify brokers, the actual Flink job, archive/serving workers, datasource
    readiness and advancing traffic. Save evidence before history/retention can

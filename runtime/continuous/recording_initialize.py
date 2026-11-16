@@ -113,7 +113,13 @@ def create_topics(kafka: Kafka, run: str) -> Document:
     return sources
 
 
-def create_sql(bootstrap: HttpConfig, database: str, grafana_password: str) -> Document:
+def create_sql(
+    bootstrap: HttpConfig,
+    database: str,
+    grafana_password: str,
+    schema: type[RecordingSQL] = RecordingSQL,
+    tables: tuple[str, ...] = ("facts", "progress"),
+) -> Document:
     """Fresh database, INSERT-only writer, readonly reader and Grafana grants."""
     require(
         _request(bootstrap, f"EXISTS DATABASE {database}", b"").strip() == b"0",
@@ -150,8 +156,8 @@ def create_sql(bootstrap: HttpConfig, database: str, grafana_password: str) -> D
         string_value(reader["user"]),
         string_value(reader["password"]),
     )
-    RecordingSQL(bootstrap, reader_config).initialize()
-    for table in ("facts", "progress"):
+    schema(bootstrap, reader_config).initialize()
+    for table in tables:
         _request(
             bootstrap,
             f"GRANT INSERT ON {database}.{table} TO {writer['user']}",
