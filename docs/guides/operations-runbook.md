@@ -231,7 +231,9 @@ old session (`ops complete`), verify and stop it, and start a new run.
   restarts grow with the archived prefix.
 - Measured results: SQL visibility within the 2 s sample interval outside
   fault windows on the complete flight (ADR-0052, ADR-0053); live visibility
-  within 1 s (ADR-0054); restoration times in ADR-0055.
+  within 1 s (ADR-0054). After a whole-profile stop, `resume` reached
+  readiness with a new fact in 120.8 s on the complete F09 flight and 98.4 s
+  on a live session (ADR-0055 evidence runs).
 
 ## Not verified
 

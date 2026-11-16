@@ -156,8 +156,19 @@ Work in this order:
    collects Flink history, container logs, Kafka state, volume inventories and
    lineage first. The F09 publisher now continues from its ledger. A
    whole-profile stop was restored with the runbook commands on short F09 and
-   live debug runs with exact reconciliation. One evidence run per source,
-   under a criterion the maintainer approves first, is still open.
+   live debug runs with exact reconciliation.
+   *Status 2026-11-16, runs:* one evidence run per source passed the
+   criterion the maintainer approved before it
+   ([ADR-0055](adr/0055-recording-operations-and-restoration.md#evidence-runs-2026-11-16)).
+   `f09-s5-full-20261116-01` stopped the whole profile at 20,008 acknowledged
+   deliveries of the complete flight, restored the latest checkpoint and was
+   ready with a new fact 120.8 s after the resume began; 21,054 facts equal
+   the reference, with no logical repeats and an equal archive-only rebuild.
+   `live-s5-full-20261116-01` did the same on a live session in 98.4 s, with
+   a second gateway epoch and SQL equal to the archive-only recomputation.
+   *Done 2026-11-16:* the maintainer accepted step 5 on these runs, and
+   ADR-0055 is accepted. The criteria table below keeps the open monitoring
+   and measurement gaps.
 
 The MVP is ready only when the selected profiles meet all of these observable
 criteria:
@@ -195,7 +206,7 @@ live SITL):
 | Identities, units, native time, versions, dispositions and quality agree from input to SQL by exact content | Met for the selected streams | Exact fact hash sets on the complete flight ([ADR-0052](adr/0052-single-machine-recording-profile.md), [ADR-0053](adr/0053-recording-recovery-boundaries.md)) and the live session ([ADR-0054](adr/0054-live-sitl-recording-profile.md)); after a whole-profile restoration ([ADR-0055](adr/0055-recording-operations-and-restoration.md)) |
 | Dashboard on processed ClickHouse results, with historical/stale/unknown states | Partial | F09 and live dashboards read SQL through the datasource (ADR-0052, ADR-0054); the live view shows *stale* and *unknown*. Full-size browser rendering is unchecked, and per-run datasource readiness is a manual signed-in step |
 | Monitoring of admission/rejections, duplicate/late results, archive coverage and lag, serving progress, checkpoint failures, Kafka health and resource/disk budgets | Partial | `ops status` shows archive and processing lag as counts, serving progress, checkpoint counts and failures, broker health and offsets (ADR-0055). Not instrumented and shown as unknown: source admission and rejection counts, duplicate and late dispositions, coverage and lag as alerting signals, broker metrics beyond health, and resource and disk budgets. No monitoring stack was added |
-| Restart/retry keeps identities and duplicate-safe values; isolated reconstruction; rollback without deleting data | Met for the verified failures | Four faults and the archive-only rebuild (ADR-0053); whole-profile stop and resume (ADR-0055); `ops stop` removes nothing. Broker, JobManager-only and host failures listed as not verified remain open |
+| Restart/retry keeps identities and duplicate-safe values; isolated reconstruction; rollback without deleting data | Met for the verified failures | Four faults and the archive-only rebuild (ADR-0053); whole-profile stop and resume on the complete F09 flight and a live session (ADR-0055 evidence runs); `ops stop` removes nothing. Broker, JobManager-only and host failures listed as not verified remain open |
 | Checksummed inventory, lineage, coverage/reconciliation status and operational evidence; partial runs state their interval | Met for runs operated with `ops` | `collect` and `stop` write inventories, lineage and a `completed`/`partial` manifest (ADR-0055). Runs before 2026-11-16 keep their own, less complete evidence |
 | Limits, failure consequences, measured latency/resources and untested boundaries documented | Partial | [Runbook](guides/operations-runbook.md#operating-limits) and ADR-0052 to ADR-0055. Capture-to-UI refresh in the browser and resource budgets under load are not measured; visibility is measured from SQL |
 

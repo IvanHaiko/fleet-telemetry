@@ -1,10 +1,10 @@
 # ADR-0055: Operations, evidence preservation and restoration of the recording profile
 
-**Status:** Proposed, 2026-11-16. The operations command, the evidence
-collection and the publisher continuation are implemented, and three debug
-runs on short intervals passed their checks
-([debug runs](#debug-runs-2026-11-16)). Acceptance waits for one evidence run
-per source under a criterion the maintainer approves before it.
+**Status:** Accepted, 2026-11-16, by maintainer decision. Proposed earlier on
+the same day. The operations command, the evidence collection and the
+publisher continuation are implemented. Three debug runs on short intervals
+and one evidence run per source, each under a criterion the maintainer
+approved before it, passed ([evidence runs](#evidence-runs-2026-11-16)).
 
 ## Problem
 
@@ -179,6 +179,33 @@ Observed while stopping: SeaweedFS does not exit within its 20 s grace period
 and receives SIGKILL (exit 137); the TaskManager exits with 239. Neither lost
 data in these runs. The resubmitted job records one failed checkpoint after
 the restore, as in ADR-0053; its cause was not examined.
+
+## Evidence runs, 2026-11-16
+
+Each run declared its criterion in `criterion.json` before it started, and
+`--approved-draft` refused any difference from the draft the maintainer
+approved. Scenario for both: a whole-profile stop mid-run as at host shutdown
+(`docker compose stop` of every service, no job cancellation), a 60 s outage,
+then `ops resume`, completion, `ops verify` and `ops stop`; 20 s readiness
+window, 300 s resume limit. Visibility and drain timing, the outage itself,
+power loss and SIGKILL of every process are not judged. Evidence is under
+`.local-discovery/<run>/` (`result.json`, `verify-*.json`, `evidence/`).
+
+| | `f09-s5-full-20261116-01` | `live-s5-full-20261116-01` |
+| --- | --- | --- |
+| Interval and stop | complete flight, native time 0 to 2,436 s; stop at 20,000 acknowledged deliveries | live PX4 SITL session; stop 240 s after `ops start` returned, simulator kept running; completion 300 s after the resume |
+| Start readiness | 13 checks passed | 14 checks passed |
+| At the stop | 20,008 acknowledged; latest completed checkpoint 125 | 1,802 published; latest completed checkpoint 28 |
+| Outage collection | `partial`, 10,672 files | `partial`, 1,361 files |
+| Restore | checkpoint 126 of the same job, completed while the services stopped; processing offset 20,030 | checkpoint 28; processing offset 1,750 |
+| Resume to readiness with a new fact | 120.8 s | 98.4 s |
+| Input end | 39,760, the declared deliveries | 4,046, equal to the archived and published count, over two gateway epochs |
+| SQL | 21,054 logical facts, 21,059 physical rows; hash set equal to the reference; 5 facts re-emitted from the restored position | 2,890 logical facts, 2,936 physical rows; equal to the archive-only recomputation; 1,156 untimed events without time |
+| Rebuild | archive-only rebuild equal to the reference and the original | recomputation from the archive is the admission check |
+| Stop collection | `completed`, 21,169 files | `completed`, 3,060 files |
+| Verdict | **passed**, all seven checks | **passed**, all eight checks |
+
+Both runs removed nothing; the six volumes are kept.
 
 ## Not verified
 

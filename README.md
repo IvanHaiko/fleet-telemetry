@@ -187,7 +187,7 @@ This is a working local research prototype, not a production system.
 | Synthetic conversion | Deterministic events, identity and manifest checks | Arbitrary devices and firmware |
 | Archive, ClickHouse, Grafana | Replay, deduplication and selected failure/recovery checks on synthetic data | Production recovery; hosted CI for the broker lane |
 | Real flight (F09) | Complete 39-minute flight through the full path on one machine; checkpoint restore and selected faults with exact reconciliation | Broker, JobManager-only and host failures |
-| Operations (recording profile) | One start/status/stop/resume command with readiness checks, evidence collection and a whole-profile restoration on short runs | Evidence runs per source; monitoring of admission, duplicates, coverage alerts and resource budgets |
+| Operations (recording profile) | One start/status/stop/resume command with readiness checks and evidence collection; a whole-profile stop restored with exact reconciliation on the complete F09 flight and a live session | Monitoring of admission, duplicates, coverage alerts and resource budgets |
 | PX4 simulator (SITL) | Live position from source to SQL; a continuous session | Physical vehicles and radio links |
 
 F09 is a public fixed-wing research flight log; SITL is PX4's
