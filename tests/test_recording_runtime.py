@@ -29,7 +29,8 @@ from ulog_integrity import F09_SOURCE_ID
 RUN = "authored-runtime"
 SOURCE: Document = {
     "cluster_id": "authored-cluster",
-    "topic_id": "authored-topic-uuid",
+    # Kafka topic ID as confluent-kafka renders it: standard base64, may hold + and /.
+    "topic_id": "m/wAQPmzTxixW8awCbbX+A",
     "topic": "authored-recording-input",
     "partition": 0,
 }

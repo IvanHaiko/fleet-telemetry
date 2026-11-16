@@ -97,3 +97,24 @@ has the figures. A later run records the same items:
   Browser rendering is a separate check, not yet made.
 - The multipart reference uploads to SeaweedFS and reads back.
 - Peak CPU, memory, PIDs and volume sizes from `resources.jsonl`.
+
+## Fault runs
+
+`runtime/recording/fault_run.py` performs the steps above for one interval and
+injects the faults that
+[ADR-0053](../adr/0053-recording-recovery-boundaries.md) defines. It writes
+`criterion.json` before any service starts, then prepares the inputs, starts the
+profile, waits for serving's first status before starting the publisher,
+executes the schedule, reconciles, rebuilds from the archive and stops the
+profile without removing volumes. Each run needs a new run ID; evidence goes to
+`.local-discovery/<run>/`. A 60-second interval with one serving fault:
+
+```powershell
+.venv/Scripts/python.exe -m runtime.recording.fault_run --run-id <new-run-id> --start-us 86459069 --end-us 146459069 --fault serving-ack-cursor@200
+```
+
+`--fault` takes `taskmanager-kill@N`, `job-resubmit@N`, `serving-ack-cursor@N`
+or `archive-pause@N:seconds`. `N` counts acknowledged deliveries, or written
+outputs for the serving fault. `--recovery-limit kind=seconds`,
+`--visibility-limit` and `--drain-limit` change the declared limits. The
+status in `result.json` is `passed`, `failed_criterion` or `failed`.

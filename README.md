@@ -53,13 +53,24 @@ flowchart LR
   The run also exposed a ClickHouse thread limit and a SQL write path that falls
   behind 1x after about 10,000 facts.
   [ADR-0052](docs/adr/0052-single-machine-recording-profile.md)
+- **Failures injected into the complete flight.** Each of two runs killed the
+  Flink TaskManager, stopped serving between the SQL acknowledgement and its
+  cursor write, cancelled and resubmitted the job from a checkpoint, and paused
+  archival for two minutes. SQL still matched the reference exactly with no
+  logical repeats, and a rebuild from archive objects alone matched too. Both
+  runs failed their predeclared 15 s visibility limit, by up to 32 s: the
+  serving worker takes about 30 s to restart on the full flight, and the
+  recovery measure closed that fault's window too early. With the measure
+  corrected, the second run passes every limit. The maintainer accepted it on
+  that post-hoc basis, which the ADR records.
+  [ADR-0053](docs/adr/0053-recording-recovery-boundaries.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The
   repository contains a reproduction, a native regression test prepared for the
   related upstream pull request, and a narrow fallback fix.
   [Package](contributions/confluent-kafka-uuid-int64/README.md)
-- **Engineering hygiene.** 660+ tests, strict mypy, CI passing on Windows and Linux,
-  pinned images and lockfiles, and 52 [architecture decision records](docs/adr/).
+- **Engineering hygiene.** 690+ tests, strict mypy, CI passing on Windows and Linux,
+  pinned images and lockfiles, and 53 [architecture decision records](docs/adr/).
 
 ## Quickstart: Kafka and Flink on one machine
 

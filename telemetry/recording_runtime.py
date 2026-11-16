@@ -28,6 +28,7 @@ from telemetry.recording_output import (
     _identifier,
     _integer,
     _measurement_id,
+    _topic_id,
     make_output,
     read_output,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "_identifier",
     "_integer",
     "_measurement_id",
+    "_topic_id",
     "make_output",
     "read_output",
 ]

@@ -30,8 +30,33 @@ from telemetry.recording_runtime import MAX_SNAPSHOT_BYTES
 
 from recording_operator import RecordingOperator, validate_config
 
+_RETAINED = re.compile(r"(?P<job>[0-9a-f]{32})/chk-(?P<id>[1-9][0-9]{0,8})")
 
-def run(path: Path) -> None:
+
+def restore_point(checkpoint_path: Path, restore: str) -> tuple[Path, str]:
+    """Admit only a completed checkpoint retained by an earlier job of this run.
+
+    The new job gets its own receipt and plan names, so the original receipt
+    and every retained checkpoint stay unchanged.
+    """
+    point = Path(restore)
+    try:
+        relative = point.relative_to(checkpoint_path).as_posix()
+    except ValueError:
+        raise ValueError("recording_job_restore_scope") from None
+    match = _RETAINED.fullmatch(relative)
+    if (
+        match is None
+        or checkpoint_path.is_symlink()
+        or not checkpoint_path.is_dir()
+        or point.is_symlink()
+        or not (point / "_metadata").is_file()
+    ):
+        raise ValueError("recording_job_restore_scope")
+    return point, f"restore-{match['job']}-chk-{match['id']}"
+
+
+def run(path: Path, restore: str | None = None) -> None:
     """Submit only to the configured remote runtime; never start a service."""
     with path.open("rb") as handle:
         raw_config = handle.read(MAX_SNAPSHOT_BYTES + 1)
@@ -42,11 +67,17 @@ def run(path: Path) -> None:
     job_path = Path(cast(str, config["job_file"]))
     plan_path = job_path.with_name(f"{config['run_id']}-execution-plan.json")
     checkpoint_path = Path("/state") / f"{config['run_id']}-checkpoints"
+    point: Path | None = None
+    if restore is not None:
+        point, tag = restore_point(checkpoint_path, restore)
+        job_path = job_path.with_name(f"{config['run_id']}-job-{tag}.json")
+        plan_path = job_path.with_name(f"{config['run_id']}-execution-plan-{tag}.json")
     if (
         Path("/state").is_symlink()
         or not Path("/state").is_dir()
-        or checkpoint_path.exists()
-        or checkpoint_path.is_symlink()
+        or (
+            point is None and (checkpoint_path.exists() or checkpoint_path.is_symlink())
+        )
         or job_path.exists()
         or job_path.is_symlink()
         or plan_path.exists()
@@ -70,6 +101,11 @@ def run(path: Path) -> None:
         "table.exec.uid.format": "recording-<id>-<transformation>",
     }.items():
         settings.set_string(key, value)
+    if point is not None:
+        # Every operator state must map; the checkpoint is never claimed or removed.
+        settings.set_string("execution.state-recovery.path", str(point))
+        settings.set_string("execution.state-recovery.claim-mode", "NO_CLAIM")
+        settings.set_string("execution.state-recovery.ignore-unclaimed-state", "false")
     settings.set_integer("python.fn-execution.bundle.size", 1)
     settings.set_integer("python.fn-execution.bundle.time", 50)
     env = StreamExecutionEnvironment.get_execution_environment(settings)
@@ -158,5 +194,10 @@ def run(path: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--restore",
+        help="resubmit from a retained checkpoint of this run, such as "
+        "/state/<run>-checkpoints/<job>/chk-<n>",
+    )
     args = parser.parse_args()
-    run(args.config)
+    run(args.config, args.restore)

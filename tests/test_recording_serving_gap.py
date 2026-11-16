@@ -5,7 +5,8 @@ If the process dies in between, SQL already holds the batch while the cursor
 still points at its first offset. A restart must reread that batch, write it
 again without changing the logical result, and finish with the same evidence
 as an uninterrupted run. The cursor must never claim an offset SQL has not
-acknowledged.
+acknowledged. The stop is the configured one-shot fault that live fault runs
+use, so this also checks that the fault fires exactly there and only once.
 """
 
 import base64
@@ -18,8 +19,12 @@ import pytest
 
 pytest.importorskip("fcntl")  # The worker module is Linux-only.
 
-from runtime.continuous import recording_worker  # noqa: E402
-from runtime.continuous.recording_batch import MAX_BATCH  # noqa: E402
+from runtime.continuous import recording_batch, recording_worker  # noqa: E402
+from runtime.continuous.recording_batch import (  # noqa: E402
+    FAULT_EXIT_CODE,
+    FAULT_MARKER,
+    MAX_BATCH,
+)
 from telemetry.continuous_archive import durable_cursor  # noqa: E402
 
 TOPIC = "recording-output"
@@ -47,7 +52,11 @@ class Clock:
 
 
 class Crash(Exception):
-    """Stands in for the process dying at one exact point."""
+    """Stands in for the process exit at the configured fault point."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class Partition:
@@ -146,7 +155,9 @@ class SQL:
 def messages() -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for offset in range(OUTPUTS):
-        body = json.dumps({"id": f"fact-{offset}", "offset": offset}).encode()
+        body = json.dumps(
+            {"id": f"fact-{offset}", "offset": offset, "input_offset": offset}
+        ).encode()
         result.append(
             {
                 "partition": 0,
@@ -163,6 +174,7 @@ def run(
     kafka: Kafka,
     sql: SQL,
     persist: Callable[[Path, dict[str, object]], None],
+    fault: dict[str, object] | None = None,
 ) -> None:
     monkeypatch.setattr(recording_worker, "kafka_client", lambda config: kafka)
     monkeypatch.setattr(recording_worker, "storage", lambda config, role: Reader())
@@ -181,10 +193,17 @@ def run(
     )
     monkeypatch.setattr(recording_worker, "read_output", json.loads)
     monkeypatch.setattr(recording_worker, "durable_cursor", persist)
+
+    def exit_process(code: int) -> None:
+        raise Crash(code)
+
+    monkeypatch.setattr(recording_batch, "_exit", exit_process)
     config: dict[str, object] = {
         "run_id": "gap-test",
         "sources": {"output": {"topic": TOPIC}},
     }
+    if fault is not None:
+        config["serving_fault"] = fault
     recording_worker.serve(config, root)
 
 
@@ -195,7 +214,11 @@ def test_restart_after_sql_ack_before_cursor_keeps_one_logical_result(
     kafka = Kafka(messages())
     sql = SQL()
     cursor = tmp_path / "serving-cursor.json"
-    cursor_writes = 0
+    # Fires on the second confirmed batch: the first brings 64 outputs, not 65.
+    fault: dict[str, object] = {
+        "point": "after_sql_ack_before_cursor",
+        "after_outputs": MAX_BATCH + 1,
+    }
 
     def checked(path: Path, value: dict[str, object]) -> None:
         if path == cursor:
@@ -204,16 +227,9 @@ def test_restart_after_sql_ack_before_cursor_keeps_one_logical_result(
             assert not missing, f"cursor ahead of SQL: {sorted(missing)[:5]}"
         durable_cursor(path, value)
 
-    def dies_on_second_cursor_write(path: Path, value: dict[str, object]) -> None:
-        nonlocal cursor_writes
-        if path == cursor:
-            cursor_writes += 1
-            if cursor_writes == 2:
-                raise Crash
-        checked(path, value)
-
-    with pytest.raises(Crash):
-        run(monkeypatch, tmp_path, kafka, sql, dies_on_second_cursor_write)
+    with pytest.raises(Crash) as stopped:
+        run(monkeypatch, tmp_path, kafka, sql, checked, fault)
+    assert stopped.value.code == FAULT_EXIT_CODE
 
     # SQL confirmed two exact batches; the cursor only knows about the first.
     first, second = list(range(MAX_BATCH)), list(range(MAX_BATCH, 2 * MAX_BATCH))
@@ -222,8 +238,13 @@ def test_restart_after_sql_ack_before_cursor_keeps_one_logical_result(
     assert not (tmp_path / "serving-complete.json").exists()
     evidence = {p.name: p.read_bytes() for p in (tmp_path / "outputs").iterdir()}
     assert len(evidence) == 2 * MAX_BATCH
+    marker = json.loads((tmp_path / FAULT_MARKER).read_text())
+    assert marker["cursor"] == {"0": MAX_BATCH}
+    assert marker["batch"] == [{"partition": 0, "offset": o} for o in second]
+    assert marker["input_offsets"] == second
 
-    run(monkeypatch, tmp_path, kafka, sql, checked)
+    # The same configuration restarts; the durable marker disarms the fault.
+    run(monkeypatch, tmp_path, kafka, sql, checked, fault)
 
     # Restart replays exactly the unconfirmed-by-cursor batch, then the rest.
     assert sql.calls == [first, second, second, list(range(2 * MAX_BATCH, OUTPUTS))]

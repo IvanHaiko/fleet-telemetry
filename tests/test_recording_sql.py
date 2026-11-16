@@ -27,7 +27,7 @@ def output(ordinal: int = 0, offset: int = 3) -> Document:
         "profile": "f09-recording-output-v1",
         "input_source": {
             "cluster_id": "authored-cluster",
-            "topic_id": "00000000-0000-0000-0000-000000000001",
+            "topic_id": "f/g60WRUTNi5u4SDCVfe+g",
             "topic": "authored-recording",
             "partition": 0,
         },

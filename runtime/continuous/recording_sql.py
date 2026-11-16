@@ -190,7 +190,8 @@ def _project(output: Document) -> Document:
     source = object_value(output["input_source"])
     require_keys(source, {"cluster_id", "topic_id", "topic", "partition"})
     cluster = _text(source["cluster_id"], r"[A-Za-z0-9_-]{1,128}")
-    topic_id = _text(source["topic_id"], r"[A-Za-z0-9_-]{1,128}")
+    # Standard base64 from confluent-kafka can hold + and / (ADR-0025).
+    topic_id = _text(source["topic_id"], r"[A-Za-z0-9+/_-]{1,128}")
     topic = _text(source["topic"], r"[A-Za-z0-9._-]{1,249}")
     if topic in {".", ".."}:
         raise ValueError("recording_sql_identifier")

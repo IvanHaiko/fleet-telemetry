@@ -44,6 +44,8 @@ MAX_OUTPUT_BYTES = 65_536
 OUTPUT_PROFILE = "f09-recording-output-v1"
 _HEX = re.compile(r"[0-9a-f]{64}")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9._-]{1,128}")
+# confluent-kafka renders a topic ID in standard base64, which can hold + and /.
+_TOPIC_ID = re.compile(r"[A-Za-z0-9+/_-]{1,128}")
 _STATE_FIELDS = {
     "vehicle_land_detected": ("landed", "ground_contact", "maybe_landed"),
     "vehicle_status": ("arming_state", "nav_state", "failsafe"),
@@ -90,10 +92,17 @@ def _integer(value: object, low: int, high: int) -> int:
     return number
 
 
+def _topic_id(value: object) -> str:
+    if not isinstance(value, str) or _TOPIC_ID.fullmatch(value) is None:
+        raise ValueError("recording_identifier")
+    return value
+
+
 def _source(value: Document) -> Document:
     require_keys(value, {"cluster_id", "topic_id", "topic", "partition"})
-    for field in ("cluster_id", "topic_id", "topic"):
+    for field in ("cluster_id", "topic"):
         _identifier(value[field])
+    _topic_id(value["topic_id"])
     _integer(value["partition"], 0, 0)
     return deepcopy(value)
 

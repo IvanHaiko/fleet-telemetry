@@ -224,7 +224,9 @@ def create_bucket(bucket: str, keys: Document) -> None:
     )
 
 
-def initialize(private: Path, evidence: Path) -> Document:
+def initialize(
+    private: Path, evidence: Path, serving_fault_after: int | None = None
+) -> Document:
     secrets = json_object(read_bounded(private / "secrets.json", 65536))
     run_plan = json_object(read_bounded(private / "run.json", 65536))
     require(
@@ -308,6 +310,17 @@ def initialize(private: Path, evidence: Path) -> Document:
             "storage": {k: v for k, v in storage.items() if k != "writer"},
             "sql_admin": roles["writer"],
             "sql_reader": roles["reader"],
+            # Absent unless a fault run asks for the one-shot test fault.
+            **(
+                {}
+                if serving_fault_after is None
+                else {
+                    "serving_fault": {
+                        "point": "after_sql_ack_before_cursor",
+                        "after_outputs": serving_fault_after,
+                    }
+                }
+            ),
         },
         # The job carries no S3 or SQL credentials.
         "job": {
@@ -344,6 +357,7 @@ def initialize(private: Path, evidence: Path) -> Document:
         "deliveries": deliveries,
         "expected_facts": expected_facts,
         "partitions": integer_value(CONNECTION["partitions"]),
+        "serving_fault_after_outputs": serving_fault_after,
     }
     private_json(root / "initialized.json", summary)
     return summary
@@ -353,9 +367,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--private", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument(
+        "--serving-fault-after-outputs",
+        type=int,
+        help="test only: exit serving once after this many SQL-confirmed outputs",
+    )
     args = parser.parse_args(argv)
     try:
-        summary = initialize(args.private, args.evidence)
+        summary = initialize(
+            args.private, args.evidence, args.serving_fault_after_outputs
+        )
     except Exception as error:
         # Trust boundary: client exceptions may embed credentials or paths.
         print(json.dumps({"status": "failed", "category": type(error).__name__}))

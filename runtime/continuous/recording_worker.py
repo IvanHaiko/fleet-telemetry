@@ -9,7 +9,7 @@ from pathlib import Path
 
 from runtime.continuous.kafka import observation
 from runtime.continuous.recording_archive import VerifiedInputs, archive
-from runtime.continuous.recording_batch import ServingBatch
+from runtime.continuous.recording_batch import AckCursorFault, ServingBatch
 from runtime.continuous.recording_config import (
     MAX_BODY,
     MAX_DELIVERIES,
@@ -80,6 +80,12 @@ def serve(config: Document, root: Path) -> None:
     gate: VerifiedInputs | None = None
     pending: Document | None = None
     batch = ServingBatch(next_offsets)
+    # A test fault exists only when the configuration names one explicitly.
+    write = (
+        sql.write_facts
+        if config.get("serving_fault") is None
+        else AckCursorFault(config["serving_fault"], root).wrap(sql.write_facts, batch)
+    )
     try:
         while not stopped() and time.monotonic() < deadline:
             # Archive may not yet have registered its immutable control evidence.
@@ -120,7 +126,7 @@ def serve(config: Document, root: Path) -> None:
                     pending = None
             # A pending output here waits for the archive; write what is verified.
             if batch.full() or idle or pending is not None:
-                batch.flush(sql.write_facts, lambda: durable_cursor(path, state))
+                batch.flush(write, lambda: durable_cursor(path, state))
             now = time.monotonic()
             if now - last < 0.5:
                 continue

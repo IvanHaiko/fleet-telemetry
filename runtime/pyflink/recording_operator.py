@@ -19,6 +19,7 @@ from telemetry.recording_runtime import (
     RecordingRuntime,
     _identifier,
     _integer,
+    _topic_id,
     make_output,
 )
 from telemetry.recording_stream import event_bytes, event_order, read_event
@@ -36,8 +37,9 @@ def validate_config(config: Document) -> None:
         raise ValueError("recording_job_topics")
     source = object_value(config.get("source"))
     require_keys(source, {"cluster_id", "topic_id", "topic"})
-    for value in source.values():
-        _identifier(value)
+    _identifier(source["cluster_id"])
+    _identifier(source["topic"])
+    _topic_id(source["topic_id"])
     if source["topic"] != config["input_topic"]:
         raise ValueError("recording_job_source")
     context = object_value(config.get("context"))

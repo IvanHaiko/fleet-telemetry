@@ -104,7 +104,28 @@ Work in this order:
    before cursor publication, pause/resume, duplicate-safe results and an isolated
    archive-only rebuild without resetting the original run. State which broker,
    Flink and host failures remain outside the verified profile.
-   A worker-level restart test covers the serving SQL ACK/cursor boundary; the live interruption remains open.
+   A worker-level restart test covers the serving SQL ACK/cursor boundary.
+   *Status 2026-11-16:* the mechanisms are implemented and
+   [ADR-0053](adr/0053-recording-recovery-boundaries.md) records them:
+   TaskManager SIGKILL with checkpoint restore, cancellation and resubmission
+   from a retained checkpoint, a configured one-shot serving fault between the
+   SQL acknowledgement and the cursor write, archive pause and resume, and an
+   isolated rebuild from archive objects. A predeclared orchestrator runs them.
+   They passed on 60-second and 240-second intervals. Two complete-flight
+   fault runs passed every correctness check: exact hashes, no logical
+   repeats, restores of the latest checkpoint, and rebuilds equal to the
+   reference. Both failed the declared 15 s visibility limit. In the first
+   run, serving start-up took about 30 s and its recovery measure closed early.
+   In the second, the measure still closed the serving window one sample early
+   ([ADR-0053](adr/0053-recording-recovery-boundaries.md#second-complete-flight-run-2026-11-16)).
+   With the corrected measure, a post-hoc evaluation of the second run passes
+   every limit.
+   *Done 2026-11-16:* the maintainer accepted step 3 on that post-hoc
+   evaluation
+   ([ADR-0053](adr/0053-recording-recovery-boundaries.md#acceptance-2026-11-16)).
+   The run's own declared verdict stays `failed_criterion`.
+   ADR-0053 lists the broker, Flink and host failures outside the verified
+   profile.
 4. **Connect the reviewed SITL source to the same responsibilities.** Retain
    original capture, source/session identity and untimed/missing-stream limits.
    Show receipt/collector uncertainty correctly during source silence and gateway
