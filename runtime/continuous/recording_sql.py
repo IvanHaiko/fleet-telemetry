@@ -276,7 +276,16 @@ def _typed_equal(actual: Document, expected: Document, columns: dict[str, str]) 
 
 
 class RecordingSQL:
-    """Fresh, bounded recording scope; reader credentials must be SELECT-only."""
+    """Fresh, bounded recording scope; reader credentials must be SELECT-only.
+
+    A subclass may replace the columns, scope, projection and identity check;
+    the write, readback and identity paths stay shared (ADR-0054).
+    """
+
+    columns: dict[str, str] = _COLUMNS
+    scope: tuple[str, ...] = _SCOPE
+    project = staticmethod(_project)
+    identity = staticmethod(_digest)
 
     def __init__(self, admin: HttpConfig, reader: HttpConfig) -> None:
         if (
@@ -290,7 +299,7 @@ class RecordingSQL:
     def initialize(self) -> None:
         """Refuse existing or incomplete scopes; never replace retained evidence."""
         self._execute(f"CREATE DATABASE {self.database}")
-        columns = ", ".join(f"{name} {kind}" for name, kind in _COLUMNS.items())
+        columns = ", ".join(f"{name} {kind}" for name, kind in self.columns.items())
         self._execute(
             f"CREATE TABLE {self.database}.facts ({columns}) "
             "ENGINE=MergeTree ORDER BY (input_offset,event_id)"
@@ -344,24 +353,25 @@ class RecordingSQL:
         """Return only after the complete typed and raw batch is reader-visible."""
         if not isinstance(outputs, list) or not 1 <= len(outputs) <= 64:
             raise ValueError("recording_sql_batch_bound")
-        rows = [_project(object_value(output)) for output in outputs]
+        rows = [self.project(object_value(output)) for output in outputs]
         expected: dict[str, Document] = {}
         offsets: dict[int, str] = {}
-        scope = {name: rows[0][name] for name in _SCOPE}
+        scope = {name: rows[0][name] for name in self.scope}
         for row in rows:
             identity = cast(str, row["event_id"])
             offset = cast(int, row["input_offset"])
             if (
-                any(row[name] != scope[name] for name in _SCOPE)
+                any(row[name] != scope[name] for name in self.scope)
                 or (identity in expected and row != expected[identity])
                 or (offset in offsets and offsets[offset] != identity)
             ):
                 raise ValueError("recording_sql_competing_fact")
             expected[identity], offsets[offset] = row, identity
         prior_scope = self.read(
-            f"SELECT DISTINCT {', '.join(_SCOPE)} FROM {self.database}.facts LIMIT 2"
+            f"SELECT DISTINCT {', '.join(self.scope)} FROM {self.database}.facts "
+            "LIMIT 2"
         )
-        scope_columns = {name: _COLUMNS[name] for name in _SCOPE}
+        scope_columns = {name: self.columns[name] for name in self.scope}
         if any(
             not _typed_equal(actual, scope, scope_columns) for actual in prior_scope
         ):
@@ -381,7 +391,7 @@ class RecordingSQL:
                 if (
                     not isinstance(identity, str)
                     or identity not in expected
-                    or not _typed_equal(row, expected[identity], _COLUMNS)
+                    or not _typed_equal(row, expected[identity], self.columns)
                 ):
                     raise ValueError("recording_sql_competing_fact")
                 seen.add(identity)
@@ -422,7 +432,7 @@ class RecordingSQL:
             for row in rows:
                 if set(row) != {"event_id"}:
                     raise ValueError("recording_sql_identity_readback")
-                identity = _digest(row["event_id"])
+                identity = self.identity(row["event_id"])
                 if identity <= last:
                     raise ValueError("recording_sql_identity_order")
                 result.add(identity)

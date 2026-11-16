@@ -254,10 +254,9 @@ def flink_evidence(run: Profile) -> Document:
                     {"name": e.get("exceptionName"), "timestamp": e.get("timestamp")}
                     for e in entries
                 ],
-                # The operator raises this fixed text when offset != deliveries.
+                # Both operators raise fixed text, e.g. when offset != deliveries.
                 "operator_refusals": sum(
-                    "recording_operator_refused" in str(e.get("stacktrace", ""))
-                    for e in entries
+                    "_operator_refused" in str(e.get("stacktrace", "")) for e in entries
                 ),
             }
         )

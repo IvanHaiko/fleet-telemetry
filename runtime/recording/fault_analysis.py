@@ -11,8 +11,9 @@ which every fact acknowledged before the fault is visible, at least one fact
 acknowledged after the resume action is visible (when one exists), and no
 visible-pending fact is older than the visibility limit. The fault window runs
 from the fault start to that sample. The recovery limit applies to the whole
-window, except for a deliberate archive pause, whose declared length is not a
-recovery: its limit applies to the catch-up from the resume action. The
+window, except for a drill of declared length (an archive pause, a live
+source silence or gateway outage), which is not a recovery: its limit applies
+to the catch-up from the resume action. The
 visibility limit applies to every fact whose acknowledgement-to-visibility
 interval lies entirely outside all fault windows; facts that overlap a window
 are covered by that fault's recovery limit instead.
@@ -27,6 +28,9 @@ type Row = Mapping[str, object]
 type Document = dict[str, object]
 
 MAX_SAMPLE_GAP_S = 10.0
+# Drills whose length is declared: the archive pause (ADR-0053), and the live
+# source silence and gateway outage (ADR-0054). Their limit is the catch-up.
+DELIBERATE = ("archive-pause", "source-silence", "gateway-restart")
 
 
 def _int(value: object) -> int:
@@ -119,7 +123,8 @@ def evaluate(
         seconds = None if done is None else (done - start) / 1000
         catch_up = None if done is None else (done - resume) / 1000
         # A deliberate pause lasts as long as declared; its limit is the catch-up.
-        judged = catch_up if fault.get("kind") == "archive-pause" else seconds
+        deliberate = fault.get("kind") in DELIBERATE
+        judged = catch_up if deliberate else seconds
         row: Document = {
             "name": fault["name"],
             "start_ms": start,
@@ -130,7 +135,7 @@ def evaluate(
             "catch_up_after_resume_s": catch_up,
             "recovery_limit_s": limit,
             "limit_applies_to": "catch_up_after_resume_s"
-            if fault.get("kind") == "archive-pause"
+            if deliberate
             else "recovery_s",
             "pass_recovery": judged is not None
             and isinstance(limit, (int, float))

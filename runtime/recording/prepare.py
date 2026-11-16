@@ -95,6 +95,72 @@ def _json(path: Path, value: object) -> None:
     _write(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def private_scope(
+    private: Path, run: str, plugin: Path, extra_env: dict[str, str] | None = None
+) -> None:
+    """Create the private directory with generated keys, passwords and env file.
+
+    Shared by the F09 and live preparations; the caller holds a 0o077 umask.
+    """
+    keys = {
+        role: {"access_key": secrets.token_hex(16), "secret_key": secrets.token_hex(32)}
+        for role in _ROLES
+    }
+    passwords = {
+        name: secrets.token_hex(32)
+        for name in ("ch_bootstrap", "grafana_admin", "grafana_reader")
+    }
+    private.mkdir(mode=0o700)
+    (private / "dashboards").mkdir(mode=0o700)
+    _json(
+        private / "s3.json",
+        {
+            "identities": [
+                {
+                    "name": role,
+                    "credentials": [
+                        {
+                            "accessKey": keys[role]["access_key"],
+                            "secretKey": keys[role]["secret_key"],
+                        }
+                    ],
+                    "actions": [
+                        action
+                        if role == "bootstrap"
+                        else f"{action}:{bucket_name(run)}"
+                        for action in actions
+                    ],
+                }
+                for role, actions in _ROLES.items()
+            ]
+        },
+    )
+    _json(
+        private / "secrets.json",
+        {
+            "ch_bootstrap": passwords["ch_bootstrap"],
+            "grafana_reader": passwords["grafana_reader"],
+            "s3": keys,
+        },
+    )
+    # Compose reads this file through --env-file; it holds no key bytes.
+    _write(
+        private / "compose.env",
+        "".join(
+            f"{name}={value}\n"
+            for name, value in (
+                ("RECORDING_RUN_ID", run),
+                ("RECORDING_PRIVATE", private.resolve().as_posix()),
+                ("RECORDING_GRAFANA_PLUGIN", plugin.resolve().as_posix()),
+                ("RECORDING_CH_BOOTSTRAP_PASSWORD", passwords["ch_bootstrap"]),
+                ("RECORDING_GRAFANA_PASSWORD", passwords["grafana_admin"]),
+                ("RECORDING_GRAFANA_READER_PASSWORD", passwords["grafana_reader"]),
+                *(extra_env or {}).items(),
+            )
+        ),
+    )
+
+
 def prepare(
     bundle: Path,
     reference: Path,
@@ -120,14 +186,6 @@ def prepare(
     require(template.count(TEMPLATE_DATABASE) == 5, "recording_dashboard_template")
     bundle_path, reference_path = container_path(bundle), container_path(reference)
 
-    keys = {
-        role: {"access_key": secrets.token_hex(16), "secret_key": secrets.token_hex(32)}
-        for role in _ROLES
-    }
-    passwords = {
-        name: secrets.token_hex(32)
-        for name in ("ch_bootstrap", "grafana_admin", "grafana_reader")
-    }
     reference_digest = file_digest(reference)
     revision = software()
     source_manifest = {
@@ -141,39 +199,7 @@ def prepare(
 
     previous = os.umask(0o077)
     try:
-        private.mkdir(mode=0o700)
-        (private / "dashboards").mkdir(mode=0o700)
-        _json(
-            private / "s3.json",
-            {
-                "identities": [
-                    {
-                        "name": role,
-                        "credentials": [
-                            {
-                                "accessKey": keys[role]["access_key"],
-                                "secretKey": keys[role]["secret_key"],
-                            }
-                        ],
-                        "actions": [
-                            action
-                            if role == "bootstrap"
-                            else f"{action}:{bucket_name(run)}"
-                            for action in actions
-                        ],
-                    }
-                    for role, actions in _ROLES.items()
-                ]
-            },
-        )
-        _json(
-            private / "secrets.json",
-            {
-                "ch_bootstrap": passwords["ch_bootstrap"],
-                "grafana_reader": passwords["grafana_reader"],
-                "s3": keys,
-            },
-        )
+        private_scope(private, run, plugin)
         _json(
             private / "run.json",
             {
@@ -192,24 +218,6 @@ def prepare(
         _write(
             private / "dashboards/recording-stream.json",
             template.replace(TEMPLATE_DATABASE, database),
-        )
-        # Compose reads this file through --env-file; it holds no key bytes.
-        _write(
-            private / "compose.env",
-            "".join(
-                f"{name}={value}\n"
-                for name, value in (
-                    ("RECORDING_RUN_ID", run),
-                    ("RECORDING_PRIVATE", private.resolve().as_posix()),
-                    ("RECORDING_GRAFANA_PLUGIN", plugin.resolve().as_posix()),
-                    ("RECORDING_CH_BOOTSTRAP_PASSWORD", passwords["ch_bootstrap"]),
-                    ("RECORDING_GRAFANA_PASSWORD", passwords["grafana_admin"]),
-                    (
-                        "RECORDING_GRAFANA_READER_PASSWORD",
-                        passwords["grafana_reader"],
-                    ),
-                )
-            ),
         )
     finally:
         os.umask(previous)
