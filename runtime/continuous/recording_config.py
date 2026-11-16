@@ -20,11 +20,15 @@ from telemetry.conversion_contract import (
     string_value,
 )
 from telemetry.local_io import read_bounded
+from telemetry.recording_output import MAX_EVENTS
 from telemetry.recording_stream import event_bytes
 
 type Document = dict[str, object]
-MAX_DELIVERIES = 4096
-MAX_BODY = 16 * 1024 * 1024
+MAX_DELIVERIES = MAX_EVENTS
+# Matches the reference/bundle output bound; complete F09 facts are 29.6 MB.
+MAX_BODY = 64 * 1024 * 1024
+# A 1x native-time replay of the complete F09 flight lasts about 39 minutes.
+MAX_LIFETIME_SECONDS = 3600
 
 
 def require(value: object, reason: str) -> None:
@@ -109,7 +113,7 @@ def sql_client(config: Document) -> RecordingSQL:
 
 def lifetime(config: Document) -> tuple[Callable[[], bool], float]:
     seconds = integer_value(config["duration_seconds"])
-    require(1 <= seconds <= 600, "recording_lifetime_bound")
+    require(1 <= seconds <= MAX_LIFETIME_SECONDS, "recording_lifetime_bound")
     stopped = False
 
     def stop(signum: int, frame: object) -> None:

@@ -40,7 +40,7 @@ python -m pytest tests/test_uuid_int64.py -q
 For the fallback fix, use the pinned master commit:
 
 ```sh
-git switch -c codex/windows-uuid-int64 fbb7c3b349a26f7ba32d7e00d55373f9b450efba
+git switch -c fix/windows-uuid-int64 fbb7c3b349a26f7ba32d7e00d55373f9b450efba
 git apply --check /path/to/confluent-kafka-uuid-int64.patch
 git apply /path/to/confluent-kafka-uuid-int64.patch
 python -m pytest tests/test_uuid_int64.py -q

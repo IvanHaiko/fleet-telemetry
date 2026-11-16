@@ -3,6 +3,7 @@
 import base64
 import time
 from pathlib import Path
+from typing import cast
 
 from runtime.continuous.kafka import observation
 from runtime.continuous.recording_config import (
@@ -27,6 +28,91 @@ from telemetry.conversion_contract import (
 )
 from telemetry.local_io import read_bounded
 
+# Archive objects are capped at 16 MiB; the complete F09 reference is 29.6 MB.
+REFERENCE_PART_BYTES = 8 * 1024 * 1024
+REFERENCE_INDEX = "reference-parts.json"
+_REFERENCE_PROFILE = "recording-reference-parts-v1"
+
+
+def reference_parts(
+    body: bytes, part_bytes: int = REFERENCE_PART_BYTES
+) -> tuple[bytes, dict[str, bytes]]:
+    """Split complete reference lines into immutable objects under the cap.
+
+    The split is deterministic, so a reader can rebuild the exact index from the
+    reconstructed bytes. The index is evidence of layout, not of content: the
+    configured whole-reference digest remains the authority.
+    """
+    require(
+        0 < len(body) <= MAX_BODY and body.endswith(b"\n"), "recording_reference_body"
+    )
+    require(1 <= part_bytes <= REFERENCE_PART_BYTES, "recording_reference_part_size")
+    parts: list[bytes] = []
+    current = bytearray()
+    for line in body.splitlines(keepends=True):
+        require(len(line) <= part_bytes, "recording_reference_line")
+        if len(current) + len(line) > part_bytes:
+            parts.append(bytes(current))
+            current.clear()
+        current += line
+    parts.append(bytes(current))
+    objects = {f"reference-{i:03d}.jsonl": part for i, part in enumerate(parts)}
+    index = canonical(
+        {
+            "format_version": _REFERENCE_PROFILE,
+            "sha256": digest(body),
+            "bytes": len(body),
+            "parts": [
+                {"key": key, "sha256": digest(part), "bytes": len(part)}
+                for key, part in objects.items()
+            ],
+        }
+    )
+    return index, objects
+
+
+def read_reference(
+    reader: ArchiveStore,
+    sha256: str,
+    length: int,
+    part_bytes: int = REFERENCE_PART_BYTES,
+) -> bytes:
+    """Rebuild the reference from verified parts and the configured digest."""
+    raw = reader.lookup(REFERENCE_INDEX)
+    require(raw is not None and len(raw) <= 65536, "recording_reference_index")
+    index = json_object(cast(bytes, raw))
+    parts = index.get("parts")
+    require(
+        index.get("format_version") == _REFERENCE_PROFILE
+        and index.get("sha256") == "sha256:" + sha256
+        and index.get("bytes") == length
+        and isinstance(parts, list)
+        and 0 < len(parts) <= MAX_BODY // part_bytes + 1,
+        "recording_reference_index",
+    )
+    pieces: list[bytes] = []
+    for position, entry in enumerate(cast(list[object], parts)):
+        row = object_value(entry)
+        require(
+            row.get("key") == f"reference-{position:03d}.jsonl",
+            "recording_reference_index",
+        )
+        pieces.append(
+            reader.read(
+                string_value(row["key"]),
+                string_value(row["sha256"]),
+                integer_value(row["bytes"]),
+            )
+        )
+    body = b"".join(pieces)
+    require(
+        len(body) == length
+        and digest(body) == "sha256:" + sha256
+        and reference_parts(body, part_bytes)[0] == raw,
+        "recording_reference_content",
+    )
+    return body
+
 
 def archive(config: Document, root: Path) -> None:
     _, context, _ = load_inputs(config)
@@ -49,10 +135,13 @@ def archive(config: Document, root: Path) -> None:
             "source-manifest.json": read_bounded(
                 Path(string_value(config["source_manifest"])), MAX_BODY
             ),
-            "reference.jsonl": read_bounded(
-                Path(string_value(config["reference"])), MAX_BODY
-            ),
         }
+        index, parts = reference_parts(
+            read_bounded(Path(string_value(config["reference"])), MAX_BODY)
+        )
+        # The index is written last, so its presence implies every part exists.
+        controls.update(parts)
+        controls[REFERENCE_INDEX] = index
         for key, body in controls.items():
             writer.create(key, body)
             require(
@@ -143,9 +232,9 @@ class VerifiedInputs:
             == json_line(context),
             "recording_context_archive",
         )
-        reference = reader.read(
-            "reference.jsonl",
-            "sha256:" + string_value(config["reference_sha256"]),
+        reference = read_reference(
+            reader,
+            string_value(config["reference_sha256"]),
             integer_value(config["reference_bytes"]),
         )
         self.facts = {

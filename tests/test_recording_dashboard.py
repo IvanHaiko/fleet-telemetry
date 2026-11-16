@@ -7,6 +7,10 @@ from typing import NoReturn, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "runtime/flight_analytics/dashboards/recording-stream.json"
+BUCKET = "GROUP BY intDiv(native_timestamp_us,1000000) "
+FIRST = re.compile(
+    r"tupleElement\(argMin\(tuple\(([^()]+)\),native_timestamp_us\),1\) AS (\w+)"
+)
 DATASOURCE = {
     "type": "grafana-clickhouse-datasource",
     "uid": "mvp-f09-clickhouse",
@@ -143,8 +147,9 @@ def test_queries_use_only_frozen_views_with_finite_read_only_budgets() -> None:
                 query,
                 re.IGNORECASE,
             )
+            # The typed points view keeps raw JSON columns out of every scan.
             assert re.findall(r"\bFROM\s+(\S+)", query) in (
-                ["${database}.measurements"],
+                ["${database}.points"],
                 ["${database}.progress"],
             )
             assert re.findall(r"\$\{([^}]+)\}", query) == ["database"]
@@ -219,11 +224,19 @@ def test_native_axes_unknowns_and_offline_route_preserve_recording_meaning() -> 
         targets = _targets(panel)
         assert len(targets) == 1
         sql = _text(targets[0]["rawSql"])
-        assert sql.startswith("SELECT native_seconds,")
-        assert "ORDER BY native_seconds,event_id LIMIT 4096 " in sql
+        prefix = "SELECT min(native_seconds) AS native_seconds,"
+        assert sql.startswith(prefix)
+        # One first sample per native second keeps a complete flight under the
+        # row cap; the tuple wrapper keeps a NULL first sample Unknown.
+        assert f" {BUCKET}ORDER BY native_seconds LIMIT 4096 " in sql
         assert " WHERE " not in sql, "Unknown chart samples must retain their native X"
-        columns = sql.split(" FROM ", 1)[0].removeprefix("SELECT native_seconds,")
-        xy_columns.update(columns.split(","))
+        columns = sql.split(" FROM ", 1)[0].removeprefix(prefix)
+        selected = FIRST.findall(columns)
+        assert selected and columns.count("argMin(") == len(selected)
+        for expression, alias in selected:
+            xy_columns.add(
+                expression if expression == alias else f"{expression} AS {alias}"
+            )
     assert xy_columns == {
         "ground_speed_m_s",
         "altitude_msl_m",
@@ -267,10 +280,16 @@ def test_native_axes_unknowns_and_offline_route_preserve_recording_meaning() -> 
         }
         reference = _text(_object(layer["filterData"])["options"])
         sql = queries[reference]
-        assert "latitude_deg AS latitude,longitude_deg AS longitude" in sql
         assert "latitude_deg IS NOT NULL AND longitude_deg IS NOT NULL" in sql
+    assert "latitude_deg AS latitude,longitude_deg AS longitude" in queries["A"]
     assert "ORDER BY native_seconds DESC,event_id DESC LIMIT 1 " in queries["A"]
-    assert "ORDER BY native_seconds,event_id LIMIT 4096 " in queries["B"]
+    route = queries["B"]
+    for index, name in ((1, "latitude"), (2, "longitude")):
+        assert (
+            "tupleElement(argMin(tuple(latitude_deg,longitude_deg),"
+            f"native_timestamp_us),{index}) AS {name}"
+        ) in route
+    assert f" {BUCKET}ORDER BY first_us LIMIT 4096 " in route
     # The only absolute URL is the established disabled loopback tile endpoint.
     urls = re.findall(r'https?://[^"\s]+', json.dumps(dashboard))
     assert urls == ["http://127.0.0.1:1/{z}/{x}/{y}.png"]

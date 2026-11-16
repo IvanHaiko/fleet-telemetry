@@ -77,6 +77,11 @@ versions, resource budgets and scope. `compose.yaml` owns the local services;
 `runtime/local/` contains the topic initializer, connector image and SQL job.
 `scripts/local.py` handles lifecycle and complete synthetic readback.
 
+The separate, opt-in `compose/recording.yml` profile adds archive, SQL, Grafana
+and workers for the complete F09 replay. It needs local prerequisite images; see
+[ADR-0052](adr/0052-single-machine-recording-profile.md) and the
+[run guide](guides/f09-single-machine-run.md).
+
 Focused checks:
 
 ```sh

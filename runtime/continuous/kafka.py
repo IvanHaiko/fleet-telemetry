@@ -1,10 +1,11 @@
-"""Pinned native Kafka access for the fixed distributed continuous profile."""
+"""Pinned native Kafka access for the distributed or single-broker profile."""
 
 from __future__ import annotations
 
 import base64
 import importlib
 import sys
+import time
 from typing import TYPE_CHECKING, Protocol, cast
 
 from telemetry.continuous_connection import LOCAL_ENDPOINTS, parse_connection
@@ -80,6 +81,10 @@ class Kafka:
         self.endpoints = (
             frozenset(self.connection.endpoints) if self.connection else LOCAL_ENDPOINTS
         )
+        # The legacy local route is the same six-broker, eighteen-partition shape.
+        self.brokers = self.connection.brokers if self.connection else 6
+        self.partitions = self.connection.partitions if self.connection else 18
+        self.replication = self.connection.replication_factor if self.connection else 2
         seeds = bootstrap.split(",")
         if (
             not seeds
@@ -103,7 +108,7 @@ class Kafka:
             "ClusterDescription",
             self.admin.describe_cluster(request_timeout=5).result(6),
         )
-        if cluster.cluster_id != self.cluster_id or len(cluster.nodes) != 6:
+        if cluster.cluster_id != self.cluster_id or len(cluster.nodes) != self.brokers:
             raise ValueError("continuous_cluster_identity")
         endpoints = {f"{node.host}:{node.port}" for node in cluster.nodes}
         if endpoints != self.endpoints:
@@ -114,7 +119,7 @@ class Kafka:
                 self.sdk.TopicCollection([topic]), request_timeout=5
             )[topic].result(6),
         )
-        if len(info.partitions) != 18:
+        if len(info.partitions) != self.partitions:
             raise ValueError("continuous_partition_count")
         return {
             "cluster_id": cluster.cluster_id,
@@ -125,17 +130,26 @@ class Kafka:
     def create(self, topic: str) -> dict[str, object]:
         new = self.module.NewTopic(
             topic,
-            num_partitions=18,
-            replication_factor=2,
+            num_partitions=self.partitions,
+            replication_factor=self.replication,
             config={
                 "cleanup.policy": "delete",
                 "retention.ms": "-1",
                 "retention.bytes": "-1",
-                "min.insync.replicas": "2",
+                "min.insync.replicas": str(self.replication),
             },
         )
+        # An existing topic fails here, so only a fresh topic reaches the wait.
         self.admin.create_topics([new], request_timeout=5)[topic].result(6)
-        return self.describe(topic)
+        # Metadata can lag creation on a fresh broker; retry only the readback.
+        for attempt in range(20):
+            try:
+                return self.describe(topic)
+            except Exception:
+                if attempt == 19:
+                    raise
+                time.sleep(0.5)
+        raise AssertionError("unreachable")
 
     def client_properties(self) -> dict[str, object]:
         """Share endpoint/TLS admission across admin, consumer and producer."""

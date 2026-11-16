@@ -1,7 +1,9 @@
 """Full lab recipe placement, credential separation and safe source transfer."""
 
 import json
+import shutil
 import signal
+import subprocess
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -151,15 +153,11 @@ def test_source_zip_includes_current_untracked_source_but_excludes_private_data(
         "CONTRIBUTING.md": b"development guide",
         "compose.yaml": b"services: {}\n",
         "runtime/new.py": b"print('new')\n",
-        "AGENTS.md": b"local working agreements",
-        "docs/AGENTS.md": b"local documentation instructions",
-        "CLAUDE.md": b"local tool instructions",
-        "GEMINI.md": b"local tool instructions",
-        ".agents/skills/example/SKILL.md": b"local skill",
-        ".codex/config.toml": b"local configuration",
-        ".github/copilot-instructions.md": b"local instructions",
-        ".github/instructions/review.instructions.md": b"local instructions",
-        ".github/prompts/review.prompt.md": b"local prompt",
+        "NOTES.local.md": b"local working notes",
+        "runtime/.settings/notes.md": b"local runtime notes",
+        ".settings/config.toml": b"local configuration",
+        ".github/notes.md": b"local notes",
+        ".github/review/notes.md": b"local review notes",
         "runtime/continuous/live.html": b"<html>live</html>",
         "runtime/continuous/link_watch.html": b"<html>links</html>",
         "runtime/continuous/position_map.html": b"<html>map</html>",
@@ -211,6 +209,50 @@ def test_source_zip_includes_current_untracked_source_but_excludes_private_data(
         stream.write(b"tamper")
     with pytest.raises(ValueError, match="split_source_archive_checksum"):
         verify_source(tmp_path / "export")
+
+
+def test_source_export_applies_repository_ignore_rules(tmp_path: Path) -> None:
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("Git is required for source export")
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run([git, "init", "--quiet", str(root)], check=True, timeout=15)
+    files = {
+        "README.md": b"tracked source",
+        "runtime/new.py": b"untracked source",
+        "docs/NOTES.local.md": b"local nested notes",
+        "NOTES.local.md": b"local root notes",
+        "docs/draft.md": b"ignored draft",
+        "runtime/private.json": b"private data",
+    }
+    for name, body in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+    (root / ".git/info/exclude").write_text("/NOTES.local.md\n/docs/NOTES.local.md\n")
+    (root / ".gitignore").write_text("/docs/draft.md\n")
+    subprocess.run([git, "add", "README.md"], cwd=root, check=True, timeout=15)
+    target = tmp_path / "export"
+    export_source(target, root)
+    verify_source(target)
+    with zipfile.ZipFile(target / "source.zip") as archive:
+        assert set(archive.namelist()) == {
+            ".gitignore",
+            "README.md",
+            "runtime/new.py",
+        }
+    manifest = json.loads((target / "source-manifest.json").read_text())
+    assert set(manifest) == {".gitignore", "README.md", "runtime/new.py"}
+
+    # A receiver has no repository ignore rules, only portable member checks.
+    assert allowed_source("docs/NOTES.local.md")
+    with patch(
+        "runtime.continuous.split_transfer.subprocess.check_output",
+        return_value=b"docs/NOTES.local.md\0",
+    ):
+        export_source(tmp_path / "unchecked-export", root)
+    verify_source(tmp_path / "unchecked-export")
 
 
 def test_small_transfer_fixture_covers_all_partition_lanes(tmp_path: Path) -> None:

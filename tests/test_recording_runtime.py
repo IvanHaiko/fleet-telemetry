@@ -18,13 +18,19 @@ from telemetry.recording_runtime import (
     make_output,
     read_output,
 )
-from telemetry.recording_stream import STREAMS, event_order, make_event
+from telemetry.recording_stream import (
+    STREAMS,
+    event_order,
+    make_event,
+    validate_battery_gaps,
+)
 from ulog_integrity import F09_SOURCE_ID
 
 RUN = "authored-runtime"
 SOURCE: Document = {
     "cluster_id": "authored-cluster",
-    "topic_id": "authored-topic-uuid",
+    # Kafka topic ID as confluent-kafka renders it: standard base64, may hold + and /.
+    "topic_id": "m/wAQPmzTxixW8awCbbX+A",
     "topic": "authored-recording-input",
     "partition": 0,
 }
@@ -230,7 +236,8 @@ def test_finish_requires_gps_and_reconciles_available_battery_evidence() -> None
         ("order", [True, 3, 0]),
         ("signatures", {"bad": "0" * 64}),
         ("current", {}),
-        ("battery", []),
+        ("battery_boundaries_seen", -1),
+        ("battery_error", "unknown"),
     ],
 )
 def test_restore_refuses_malformed_or_different_policy_state(
@@ -302,7 +309,7 @@ def test_output_preserves_fact_and_transport_identity_without_aliases() -> None:
     [
         ("profile", "unsupported"),
         ("input_offset", True),
-        ("input_offset", 4096),
+        ("input_offset", MAX_EVENTS),
         ("context_sha256", "A" * 64),
         ("input_source", {**SOURCE, "partition": True}),
         ("input_source", {**SOURCE, "partition": 1}),
@@ -343,3 +350,98 @@ def test_output_refuses_loss_of_unknowns_hash_mismatch_and_nonfinite_values() ->
     ):
         with pytest.raises(ValueError):
             read_output(bad)
+
+
+def test_restore_refuses_v1_history_snapshot() -> None:
+    snapshot = RecordingRuntime(policy()).snapshot()
+    for field in ("battery_boundaries_seen", "battery_error", "signature_count"):
+        del snapshot[field]
+    snapshot.update(profile="f09-recording-runtime-state-v1", battery=[])
+    with pytest.raises(ValueError, match="snapshot_policy"):
+        RecordingRuntime.restore(policy(), snapshot)
+
+
+@pytest.mark.parametrize(
+    "points,gaps,expected",
+    [
+        pytest.param([(0, 100), (2, 300)], [(100, 300)], None, id="valid-straddling"),
+        pytest.param([(2, 300)], [(100, 300)], "predecessor", id="missing-predecessor"),
+        pytest.param(
+            [(0, 100), (1, 150), (2, 200)],
+            [(50, 200)],
+            "predecessor",
+            id="wrong-predecessor-and-interior-point",
+        ),
+        pytest.param([(1, 200)], [(100, None)], "predecessor", id="open-straddling"),
+        pytest.param(
+            [(0, 100)], [(80, 120)], "observation", id="observation-inside-gap"
+        ),
+        pytest.param(
+            [(1, 200), (3, 300)],
+            [(200, 250)],
+            "observation",
+            id="missing-end-before-coverage",
+        ),
+        pytest.param([(1, 200), (3, 300)], [], "coverage", id="ordinal-skip"),
+        pytest.param(
+            [(1, 200), (3, 250), (4, 300)],
+            [(200, 300)],
+            "coverage",
+            id="gap-end-not-next-stamp",
+        ),
+        pytest.param(
+            [(4, 300)], [(300, None)], "coverage", id="gap-after-final-ordinal"
+        ),
+        pytest.param([], [(200, 300), (250, 350)], "order", id="overlap"),
+        pytest.param([], [(200, 300), (200, 300)], "order", id="duplicate-gap"),
+    ],
+)
+def test_finish_matches_reference_battery_gaps(
+    points: list[tuple[int, int]],
+    gaps: list[tuple[int, int | None]],
+    expected: str | None,
+) -> None:
+    context = policy()
+    rows = [make_event(STREAMS[0], battery(i, t), RUN) for i, t in points]
+    rows.append(make_event(STREAMS[-1], gps(0, 999), RUN))
+    predecessors = [row for row in rows if cast(int, row["native_timestamp_us"]) < 150]
+    context.update(
+        predecessors=predecessors,
+        battery_gaps=[{"start_us": a, "end_us": b} for a, b in gaps],
+    )
+    runtime = RecordingRuntime(context)
+    collect(runtime, rows[len(predecessors) :])
+
+    def reference() -> None:
+        validate_battery_gaps(rows, context)
+
+    for check in (
+        reference,
+        runtime.finish,
+        RecordingRuntime.restore(context, runtime.snapshot()).finish,
+    ):
+        if expected is None:
+            check()
+        else:
+            with pytest.raises(ValueError) as caught:
+                check()
+            assert caught.value.args == (f"stream_battery_gap_{expected}",)
+
+
+def test_checkpoint_head_size_is_independent_of_delivery_history() -> None:
+    context = policy()
+    context.update(
+        predecessors=[], battery_gaps=[], battery_source_count=3000, end_us=5000
+    )
+    runtime = RecordingRuntime(context)
+    sizes = []
+    for ordinal in range(1500):
+        stamp = 150 + ordinal
+        runtime.accept(make_event(STREAMS[0], battery(ordinal, stamp), RUN))
+        runtime.accept(make_event(STREAMS[-1], gps(ordinal, stamp), RUN))
+        if runtime.deliveries in (100, 3000):
+            sizes.append(len(json_line(runtime.checkpoint_head())))
+    runtime.finish()
+    assert runtime.signature_count == 3000
+    early, late = sizes
+    assert abs(late - early) < 1024
