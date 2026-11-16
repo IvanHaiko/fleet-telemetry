@@ -67,9 +67,10 @@ flowchart LR
 - **A live simulated source through the same path.** A PX4 SITL session went
   through a gateway with durable raw capture, then Kafka, Flink, the archive,
   SQL and Grafana. Battery and state, which carry no measurement time, are
-  attached to positions by receipt order. The live view showed *stale* during
-  a source silence and *unknown* while the gateway was down. SQL matched a
-  rebuild from the archive exactly.
+  attached to positions by receipt order. The live state view reported
+  *stale* during a source silence and *unknown* while the gateway was down
+  (the dashboard's text panels displayed these states only after a fix in
+  ADR-0056). SQL matched a rebuild from the archive exactly.
   [ADR-0054](docs/adr/0054-live-sitl-recording-profile.md),
   [guide](docs/guides/live-sitl-recording-run.md)
 - **One operations command and a restoration drill.** `ops.py` starts either
@@ -80,13 +81,22 @@ flowchart LR
   every worker and the source without a gap or a logical repeat.
   [ADR-0055](docs/adr/0055-recording-operations-and-restoration.md),
   [runbook](docs/guides/operations-runbook.md)
+- **Run health without a monitoring stack.** Every monitoring signal (source
+  admission and rejections, Flink dispositions, archive and serving coverage,
+  checkpoints, Kafka partitions and group lag, memory, CPU and disk against
+  their budgets) is computed from what the components already write, with a
+  declared threshold and an `ok`/`warn`/`fail`/`unknown` state. Thirteen
+  contract-based SQL quality checks run in `ops status` and on a *Run health*
+  panel. Checking the dashboards in a browser at full size found three
+  defects that query-by-query checks had missed, all fixed.
+  [ADR-0056](docs/adr/0056-run-health-without-a-monitoring-stack.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The
   repository contains a reproduction, a native regression test prepared for the
   related upstream pull request, and a narrow fallback fix.
   [Package](contributions/confluent-kafka-uuid-int64/README.md)
 - **Engineering hygiene.** 690+ tests, strict mypy, CI passing on Windows and Linux,
-  pinned images and lockfiles, and 54 [architecture decision records](docs/adr/).
+  pinned images and lockfiles, and 56 [architecture decision records](docs/adr/).
 
 ## Quickstart: Kafka and Flink on one machine
 

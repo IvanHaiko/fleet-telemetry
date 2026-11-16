@@ -15,7 +15,9 @@ Commands (run from the repository root on the host):
   then require readiness and a fact that was not acknowledged before it;
 - `complete`: end a live session, or wait for an F09 replay to finish;
 - `verify`: reconcile SQL with the reference or the archive-only recomputation,
-  and for F09 rebuild from the archive into a separate database.
+  and for F09 rebuild from the archive into a separate database;
+- `view`: serve a stored run's dashboard (storage, SQL and Grafana only) and
+  make its datasource able to read the run.
 
 The run's settings stay in `.local-discovery/<run>/ops.json`; every step is
 logged to `events.jsonl` there. Output holds counts, states and times only.
@@ -32,6 +34,10 @@ from typing import cast
 
 from runtime.recording.evidence import collect, probe, write
 from runtime.recording.fault_run import git, prepare_inputs
+from runtime.recording.health import measure as measure_health
+from runtime.recording.health import sample
+from runtime.recording.health_signals import evaluate as signals
+from runtime.recording.health_signals import render as render_signals
 from runtime.recording.live_prepare import prepare_live
 from runtime.recording.live_run import launch as launch_live
 from runtime.recording.ops_view import evaluate, render, snapshot
@@ -43,6 +49,7 @@ from runtime.recording.profile import (
     RunFailure,
     require,
 )
+from runtime.recording.stored_view import view
 
 LIVE_SERVICES = ("live-archive-worker", "live-serving-worker", "live-gateway")
 
@@ -71,6 +78,7 @@ def ready(
     previous = snapshot(run)
     while True:
         time.sleep(window)
+        sample(run)
         current = snapshot(run)
         checks = evaluate(previous, current, source, after)
         if all(v is True for v in checks.values()):
@@ -253,7 +261,16 @@ def complete(args: argparse.Namespace) -> Document:
         run.docker("kill", "--signal", "USR1", run.container("live-gateway"))
         run.wait(lambda: marker(run, "gateway-complete"), 120, "gateway_not_completed")
         run.docker("stop", run.container("px4-sitl"), timeout=60)
-    run.wait(lambda: marker(run, "serving-complete"), args.timeout, "not_completed")
+    end = time.monotonic() + args.timeout
+    while True:
+        began = time.monotonic()
+        if args.sample > 0:  # 0: the caller samples (runtime/recording/mvp_run.py)
+            sample(run)  # memory, CPU and disk while the run finishes (ADR-0056)
+        if marker(run, "serving-complete"):
+            break
+        require(began < end, "not_completed")
+        period = max(5.0, args.sample)
+        time.sleep(max(0.0, period - (time.monotonic() - began)))
     run.log("serving_complete")
     return {"run_id": args.run_id, "status": "completed"}
 
@@ -337,9 +354,22 @@ def verify(args: argparse.Namespace) -> Document:
     }
 
 
-def stop_run(run: Profile) -> Document:
+def health_of(run: Profile, plan: Document, current: Document) -> Document:
+    """Observations and signals (ADR-0056); kept whole in the evidence."""
+    observed = measure_health(run, plan, current)
+    return {"observed": observed, "signals": signals(current, observed)}
+
+
+def signal_table(health: Document) -> str:
+    return render_signals(cast(list[Document], health["signals"]))
+
+
+def stop_run(run: Profile, plan: Document | None = None) -> Document:
     """Collect evidence, then stop without removing any data."""
-    collected = collect(run, "stop", snapshot(run))
+    if plan is None:
+        plan = cast(Document, json.loads((run.out / "ops.json").read_text()))
+    current = snapshot(run)
+    collected = collect(run, "stop", current, health_of(run, plan, current))
     observers = run.docker(
         *("ps", "-q", "--filter", f"name=f09-observer-{run.run_id}")
     ).split()
@@ -353,7 +383,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("start", "status", "collect", "stop", "resume", "complete", "verify"),
+        choices=(
+            *("start", "status", "collect", "stop", "resume", "complete", "verify"),
+            "view",
+        ),
     )
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source", choices=("f09", "live"), default="f09")
@@ -362,12 +395,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window", type=float, default=20.0)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--label", default="manual")
+    parser.add_argument("--sample", type=float, default=15.0)
     args = parser.parse_args(argv)
     try:
         if args.command == "start":
             result = start(args)
         elif args.command == "status":
-            run, _ = load(args.run_id)
+            run, plan = load(args.run_id)
             first = snapshot(run)
             if args.window > 0:
                 time.sleep(args.window)
@@ -375,17 +409,23 @@ def main(argv: list[str] | None = None) -> int:
                 source = str(cast(Document, current["inside"]).get("source"))
                 print(render(current, evaluate(first, current, source), args.window))
             else:
+                current = first
                 print(render(first, None, 0))
+            print(signal_table(health_of(run, plan, current)))
             return 0
         elif args.command == "collect":
-            run, _ = load(args.run_id)
-            result = collect(run, re.sub(r"[^a-z0-9-]", "", args.label), snapshot(run))
+            run, plan = load(args.run_id)
+            current = snapshot(run)
+            label = re.sub(r"[^a-z0-9-]", "", args.label)
+            result = collect(run, label, current, health_of(run, plan, current))
         elif args.command == "stop":
-            result = stop_run(load(args.run_id)[0])
+            result = stop_run(*load(args.run_id))
         elif args.command == "resume":
             result = resume(args)
         elif args.command == "complete":
             result = complete(args)
+        elif args.command == "view":
+            result = view(*load(args.run_id))
         else:
             result = verify(args)
     except (RunFailure, OSError, ValueError, KeyError) as error:

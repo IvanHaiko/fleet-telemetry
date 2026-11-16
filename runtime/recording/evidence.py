@@ -3,6 +3,7 @@
 `collect` writes a new directory `<run>/evidence/<UTC stamp>-<label>/` with:
 
 - `snapshot.json`: the operations status snapshot at collection time;
+- `health.json`: the monitoring observations and signals (ADR-0056);
 - `flink.json`: the Flink overview and, per job of the run, its details,
   checkpoint statistics and exception history (the JobManager keeps these in
   memory only);
@@ -302,12 +303,16 @@ def file_inventory(run: Profile, skip: Path) -> list[Document]:
     return rows
 
 
-def collect(run: Profile, label: str, snapshot: Document) -> Document:
+def collect(
+    run: Profile, label: str, snapshot: Document, health: Document | None = None
+) -> Document:
     """Write one evidence collection; return its directory and inventory hash."""
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     directory = run.out / "evidence" / f"{stamp}-{label}"
     directory.mkdir(parents=True)
     write(directory / "snapshot.json", snapshot)
+    if health is not None:
+        write(directory / "health.json", health)
     write(directory / "flink.json", flink_history(run))
     logs = save_logs(run, directory / "logs")
     write(directory / "containers.json", logs)

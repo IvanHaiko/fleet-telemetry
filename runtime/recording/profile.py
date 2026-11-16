@@ -11,6 +11,7 @@ only, never paths, credentials or measurement data.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
@@ -81,9 +82,20 @@ class Profile:
             handle.write(line + "\n")
         print(line, flush=True)
 
-    def docker(self, *args: str, timeout: float = 300, check: bool = True) -> str:
+    def docker(
+        self,
+        *args: str,
+        timeout: float = 300,
+        check: bool = True,
+        env: dict[str, str] | None = None,
+    ) -> str:
         result = subprocess.run(
-            ["docker", *args], capture_output=True, text=True, timeout=timeout, cwd=ROOT
+            ["docker", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=ROOT,
+            env=None if env is None else {**os.environ, **env},
         )
         if check and result.returncode != 0:
             with (self.out / "docker-errors.log").open("a", encoding="utf-8") as log:

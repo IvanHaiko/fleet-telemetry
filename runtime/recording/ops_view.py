@@ -23,13 +23,8 @@ from runtime.recording.profile import PROJECT, Document, Profile
 GRAFANA_HEALTH = "http://127.0.0.1:13003/api/health"
 CHECKPOINT_AGE_LIMIT_S = 30.0  # three 10 s checkpoint intervals
 STATUS_AGE_LIMIT_S = 10.0
-NOT_INSTRUMENTED = (
-    "source admission and rejection counts",
-    "duplicate and late dispositions",
-    "archive coverage as a monitored signal (only progress files are read)",
-    "Kafka broker metrics beyond health and offsets",
-    "memory, CPU and disk against the declared budgets",
-)
+# Every other signal has a threshold and a state in runtime/recording/health.py.
+NOT_INSTRUMENTED = ("Kafka broker metrics beyond health, offsets and partitions",)
 
 
 def flink_view(run: Profile) -> Document:

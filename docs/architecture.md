@@ -61,8 +61,21 @@ the Flink REST API, Grafana's health endpoint and a read-only probe in the
 archive namespace; it adds no service. After a whole-profile stop the job is
 resubmitted from the newest retained checkpoint, the workers continue from
 their cursors, the F09 publisher continues from its ledger and the live
-gateway opens a new epoch. Monitoring beyond these status reads remains an
-open gap.
+gateway opens a new epoch.
+
+*Update 2026-11-16, run health:* monitoring signals are computed from what the
+components already write or answer, each with a declared threshold and a state
+`ok`/`warn`/`fail`/`unknown`, and shown by `ops status` and saved by `collect`
+([ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md)): source
+admission and rejection counts, the Flink operator's disposition counters,
+physical against logical SQL rows, archive and serving coverage, checkpoints
+and restarts, broker partitions and consumer-group lag, container memory and
+CPU against their compose limits, and free disk against a measured run
+footprint. Twelve to thirteen data-quality rules from the data contracts run
+as one SQL scan, both in `ops` and in a *Run health* dashboard panel. No
+monitoring service is added; Kafka broker metrics stay `unknown`, and nothing
+alerts between two `ops` invocations. `ops view` serves a stored run's
+dashboard from storage, SQL and Grafana alone.
 
 ```mermaid
 sequenceDiagram
@@ -849,6 +862,8 @@ adoption remains gated by producer, full firmware-definition and rights evidence
 | Single-machine F09 recording profile | Proposed; complete flight demonstrated locally on 2026-11-13 | [ADR-0052](adr/0052-single-machine-recording-profile.md) adds one plaintext private broker with 12 partitions, loopback storage through a shared network namespace, and a hash-pinned worker image; 21,054 facts reconcile by content hash in two complete runs; the Flink association operator falls behind 1x and checkpoint restore remains open |
 | Recording recovery boundaries | Accepted 2026-11-16 on a post-hoc evaluation of the second complete-flight fault run; both runs failed the declared visibility limit | [ADR-0053](adr/0053-recording-recovery-boundaries.md) exercises TaskManager SIGKILL, resubmission from a retained checkpoint, a configured one-shot serving fault inside the SQL/cursor window, archive pause and an archive-only rebuild from one predeclared orchestrator; all correctness checks pass on the complete flight; serving start-up and an early-closing recovery window exceeded the 15 s visibility limit; the maintainer accepted the second run's post-hoc evaluation with the strict measure, which passes; broker, JobManager and host failures are not verified |
 | Live PX4 SITL source on the recording profile | Accepted 2026-11-16; run `live-s4-full-20261116-02` passed its predeclared criterion | [ADR-0054](adr/0054-live-sitl-recording-profile.md) adds a capture gateway, the `px4-live-event-v1` contract, a receipt-ordered Flink lane, an archive-recomputation serving gate and a `live_state` view; one boot session and one vehicle; unsigned MAVLink, physical vehicles and RF links are not covered |
+| Recording operations and restoration | Accepted 2026-11-16; one evidence run per source passed its predeclared criterion | [ADR-0055](adr/0055-recording-operations-and-restoration.md) adds one operations command with readiness over two snapshots, evidence collection before history is lost, and resubmission from the newest retained checkpoint after a whole-profile stop |
+| Run health and data quality without a monitoring stack | Proposed 2026-11-16; checked on the stored step 5 runs and short debug runs | [ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md) derives every monitoring signal from existing component outputs with a declared threshold and state, runs contract-based SQL quality checks in `ops` and a *Run health* panel, and fixes three dashboard defects found in the browser; no Prometheus, exporter or data-quality framework is added |
 | Local S3-compatible distribution/client and conditional-write compatibility | M4 storage startup | [ADR-0024](adr/0024-m4-storage-compatibility.md) accepts the bounded pinned SeaweedFS/SDK foundation after live race/readback/permission checks, reviewed test supersessions and deterministic acceptance; checkpoint S3-plugin adoption stays separate |
 | Windows UUID native conversion | Any Windows Kafka publication | [ADR-0025](adr/0025-windows-kafka-uuid-repair.md) accepts the exact local SDK repair and observed full-width guard; earlier Windows identities still require audit |
 | Historical Windows topic identity trust | Reuse of pre-repair receipts | [ADR-0026](adr/0026-historical-topic-identity-qualification.md) qualifies 59 narrowed identities; independent attestations/migration remain required |

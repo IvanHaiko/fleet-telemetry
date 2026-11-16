@@ -57,12 +57,43 @@ timeout it prints the status screen and exits with `not_ready`.
 | `source_not_refused` (live) | the gateway reports no refusal |
 | `fact_after_resume_visible` (resume only) | SQL holds a fact whose input offset is at or beyond the input end offset measured just after the workers restarted |
 
-**Manual step, maintainer only.** `grafana_health` does not show that the
-datasource can query ClickHouse. Sign in at `http://127.0.0.1:13003/`, open the
-run's dashboard (*F09 recording* or *Live PX4 SITL session*) and confirm the
-panels show data; or use *Connections → Data sources → ClickHouse → Save &
-test*. Record the result with the run. Five failed sign-ins lock the user for
-a few minutes.
+**Manual datasource check, signed in.** `grafana_health` does not show that
+the datasource can query ClickHouse, and the Grafana API needs a signed-in
+user. After `start` (and after `resume`):
+
+1. Sign in at `http://127.0.0.1:13003/` as `recording_admin`. Grafana keeps
+   the administrator password of the run that first created the
+   `grafana-data` volume; later runs' generated passwords do not change it.
+   Five failed sign-ins lock the user for a few minutes.
+2. *Connections → Data sources → F09 recording ClickHouse → Save & test.*
+   Expected: *Data source is working*. A refusal (`AUTHENTICATION_FAILED`,
+   code 516) means the Grafana identity holds another run's password; run
+   `ops view --run-id <run>` once the run has stopped, or initialize a new
+   run.
+3. Open the run's dashboard (*F09 recording → Telemetry — F09 historical
+   recording stream* or *Live PX4 SITL session*). Expected: no panel shows a
+   red error corner or *No data*; *Run health* lists every check with
+   `ok`; the live view's *Connection* shows `observed` while packets arrive.
+   Panels showing `TOO_MANY_SIMULTANEOUS_QUERIES` mean the recording
+   ClickHouse override is not mounted.
+4. Record the result (pass or the failing panel and its message) in the
+   run's `events.jsonl` notes or the run report. Never record coordinates.
+
+## Viewing a stored run
+
+```powershell
+.venv/Scripts/python.exe -m runtime.recording.ops view --run-id <run>
+```
+
+`view` starts only the archive, ClickHouse and Grafana with the stored run's
+environment, renders the current dashboard templates for its database into
+`.local-discovery/recording-view-<run>/dashboards/`, recreates Grafana so
+that it reads them, and makes the datasource able to read the run (it
+re-keys the shared Grafana identity only if ClickHouse refuses it). It
+prints the dashboard address and the number of SQL points. It refuses while
+Kafka, Flink or any worker runs, because recreating ClickHouse with another
+run's environment would disturb a running run. One stored run is viewable at
+a time; nothing is copied or deleted.
 
 ## Status
 
@@ -77,8 +108,36 @@ rows, distinct inputs and the highest visible input offset, SeaweedFS,
 Grafana's health, the live view's connection for a live session, the
 completion markers, and the readiness checks over `--window` seconds
 (`--window 0` takes one snapshot and shows readiness as unknown). A value that
-could not be measured prints `unknown`. The last line lists what the profile
-does not instrument; those signals stay unknown, never zero.
+could not be measured prints `unknown`. Below it, the *Health* table lists
+every monitoring signal with its state and value
+([ADR-0056](../adr/0056-run-health-without-a-monitoring-stack.md)); `status`
+then takes about 25 s. `collect` and `stop` save the same observations and
+signals as `health.json`.
+
+### Health signals
+
+States are `ok`, `warn`, `fail` and `unknown`. `unknown` means not observed
+(for example Flink signals while no job runs); it is never a pass and never a
+zero.
+
+| Signal | `warn` when | `fail` when | Response |
+| --- | --- | --- | --- |
+| `source_admission` | live: lost packets or sequence gaps > 0 | F09 counts do not reconcile; live gateway refusal | `warn`: the loss is recorded, the run continues. `fail`: collect, stop, keep the run; check the prepared inputs or the gateway refusal category |
+| `processing_dispositions` | F09 complete with duplicates ≠ 2 (after a restore the counters restart) | rejected > 0 (the job fails with `recording_operator_refused`) | `fail`: collect; the job's exception history names the refusal |
+| `sql_repeats` | physical rows > 2 × facts | — | repeated serving retries; check the serving log for retries; `verify` still decides the logical result |
+| `kafka_input_end` | — | end ≠ declared deliveries at completion, or above them while running | collect and stop; compare the publisher ledger with `kafka.json` |
+| `archive_coverage` | lag > 1,000 deliveries or status older than 10 s | status older than 60 s; lag > 0 after completion | `warn`: watch two windows. `fail`: is `archive-worker` running? Start it; it continues from its cursor |
+| `serving_coverage` | as archive, against the archived prefix | as archive | start `serving-worker` or `resume` |
+| `checkpoints` | more than 1 failed (1 is the submission trigger) | latest completed older than 30 s | `fail`: check the TaskManager; `collect` before restarting anything |
+| `job_restarts` | > 0 (Flink recovered) | Flink answers but no job of the run runs | `fail`: `resume` |
+| `kafka_broker` | — | unhealthy, topic IDs changed, any unavailable partition | stop the run, collect, do not reuse its topics |
+| `kafka_group_lag` | a run group's lag > 1,000 | — | processing is behind by more than about a minute of F09 input |
+| `kafka_broker_metrics` | — | — | always `unknown`: no JMX exporter in the profile |
+| `memory` | ≥ 80 % of a container's limit | ≥ 95 % | `fail` precedes an OOM kill; collect, then stop the run |
+| `cpu` | ≥ 95 % of a container's CPU budget | — | informational; the TaskManager and serving may sit at their budget during catch-up |
+| `memory_budget` | — | running limits exceed the engine's memory | raise Docker Desktop's memory before starting |
+| `disk_free` | < 2 complete runs (1,024 MiB) on the Docker or host disk | < 1 run (512 MiB) | free space before starting another run; never delete run volumes to do it |
+| `quality.*` | — | any violation of the declared rule | collect and keep the run; the check's name says which contract rule failed. The same checks are on the *Run health* panel |
 
 Read the lags as counts, not times: archive lag is input end minus archived
 prefix; processing lag is input end minus the offset Flink committed at its
@@ -228,7 +287,18 @@ old session (`ops complete`), verify and stop it, and start a new run.
   about 39 minutes at 1x. Live: at most 50,000 deliveries and 30 minutes per
   gateway process.
 - Steady-state container limits total about 10.5 GiB of memory; serving
-  restarts grow with the archived prefix.
+  restarts grow with the archived prefix. The `memory_budget` signal compares
+  the running limits with Docker's engine memory.
+- Disk per complete F09 run, measured on the stored step 5 run: 287 MB on the
+  Docker disk (Kafka topics 79.6 MB, archive objects 95.9 MB, evidence volume
+  61.3 MB, checkpoints 26.4 MB, SQL 24.0 MB) and 118 MB in the run directory on
+  the host. The declared budget is 512 MiB per run on each disk; `disk_free`
+  warns below two runs. Docker's virtual disk grows on the host disk, so the
+  smaller free space counts.
+- Resources are sampled into `resources.jsonl` (memory bytes and share of the
+  limit, CPU against the container's budget, both disks, every volume's size)
+  during readiness and while `complete` waits (`--sample`, default 15 s).
+  Peaks under the complete flight: pending the step 6 final run.
 - Measured results: SQL visibility within the 2 s sample interval outside
   fault windows on the complete flight (ADR-0052, ADR-0053); live visibility
   within 1 s (ADR-0054). After a whole-profile stop, `resume` reached
@@ -248,6 +318,6 @@ detail:
 - SIGKILL of the archive worker; serving stopped before the SQL acknowledgement
   or inside the write; ClickHouse or SeaweedFS restarts during writes;
 - a torn publisher ledger; a restarted simulator joined to an old session;
-- monitoring of source admission and rejections, duplicate and late
-  dispositions, archive coverage and lag as alerts, Kafka health beyond the
-  healthcheck, and resource and disk budgets.
+- alerting between two `ops` invocations (signals are computed on demand),
+  and Kafka broker metrics beyond health, offsets, partition availability
+  and topic sizes.

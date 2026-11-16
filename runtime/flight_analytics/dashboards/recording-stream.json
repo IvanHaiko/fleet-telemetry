@@ -14,7 +14,7 @@
     }
   ],
   "uid": "mvp-f09-stream",
-  "title": "Telemetry \u2014 F09 historical recording stream",
+  "title": "Telemetry — F09 historical recording stream",
   "description": "Bounded F09 recording replay through processing-backed SQL. Native boot time, separate association uncertainty and last reported pipeline progress; no live aircraft connectivity claim.",
   "schemaVersion": 39,
   "version": 1,
@@ -57,7 +57,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "F09 historical recording \u2014 bounded replay",
+      "title": "F09 historical recording — bounded replay",
       "type": "text",
       "gridPos": {
         "x": 0,
@@ -210,7 +210,7 @@
     },
     {
       "id": 5,
-      "title": "Historical route and last recorded position \u2014 offline map",
+      "title": "Historical route and last recorded position — offline map",
       "type": "geomap",
       "description": "All admitted positions in the selected bounded interval; the larger marker is the last recorded position. No live connection is inferred. Bundled geography only; the loopback tile endpoint disables remote tiles.",
       "gridPos": {
@@ -256,7 +256,7 @@
         "view": {
           "id": "fit",
           "allLayers": false,
-          "layer": "Historical route \u2014 all selected GPS facts",
+          "layer": "Historical route — all selected GPS facts",
           "lastOnly": false,
           "padding": 10,
           "maxZoom": 18,
@@ -291,7 +291,7 @@
           },
           {
             "type": "markers",
-            "name": "Historical route \u2014 all selected GPS facts",
+            "name": "Historical route — all selected GPS facts",
             "filterData": {
               "id": "byRefId",
               "options": "B"
@@ -1047,7 +1047,7 @@
     },
     {
       "id": 15,
-      "title": "Recorded state association quality \u2014 separate streams",
+      "title": "Recorded state association quality — separate streams",
       "type": "table",
       "description": "Land-detector and commander association statuses remain separate. A match in one stream does not fill an unknown in the other. Recording gaps, stale and before-first states remain visible.",
       "gridPos": {
@@ -1086,6 +1086,48 @@
           "show": false
         }
       }
+    },
+    {
+      "id": 16,
+      "title": "Run health",
+      "type": "table",
+      "description": "Data-quality checks over this run's facts (ADR-0056): each row counts violations of a rule declared in the data contracts; ok means none, fail means at least one, unknown means no facts were there to check. Coordinate checks count violations only and never show values. The same SQL runs in ops status, which also shows admission, Kafka, Flink, archive and resource signals that SQL does not hold.",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "mvp-f09-clickhouse"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "13.2.4",
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "mvp-f09-clickhouse"
+          },
+          "queryType": "table",
+          "editorType": "sql",
+          "rawSql": "SELECT tupleElement(arrayJoin([tuple('identity_conflicts',toInt64(toInt64(count()) - toInt64(uniqExact(event_id)))),tuple('latitude_range',toInt64(countIf(latitude_deg < -90 OR latitude_deg > 90))),tuple('longitude_range',toInt64(countIf(longitude_deg < -180 OR longitude_deg > 180))),tuple('null_island',toInt64(countIf(latitude_deg = 0 AND longitude_deg = 0))),tuple('remaining_fraction_range',toInt64(countIf(remaining_fraction < 0 OR remaining_fraction > 1))),tuple('time_order',toInt64(arrayCount((a, b) -> b < a, arrayPopBack(arrayMap(x -> x.2, arraySort(groupArray(tuple(input_offset, native_timestamp_us))))), arrayPopFront(arrayMap(x -> x.2, arraySort(groupArray(tuple(input_offset, native_timestamp_us)))))))),tuple('position_pair',toInt64(countIf(isNull(latitude_deg) != isNull(longitude_deg)))),tuple('voltage_positive',toInt64(countIf(voltage_v <= 0))),tuple('current_nonnegative',toInt64(countIf(current_a < 0))),tuple('battery_values_iff_matched',toInt64(countIf(if(battery_status = 'matched', (isNull(voltage_v)), (isNotNull(voltage_v) OR isNotNull(current_a) OR isNotNull(remaining_fraction)))))),tuple('state_values_iff_matched',toInt64(countIf(if(land_status = 'matched', (isNull(landed) OR isNull(ground_contact) OR isNull(maybe_landed)), (isNotNull(landed) OR isNotNull(ground_contact) OR isNotNull(maybe_landed))) OR if(vehicle_status_status = 'matched', (isNull(arming_state) OR isNull(nav_state) OR isNull(failsafe)), (isNotNull(arming_state) OR isNotNull(nav_state) OR isNotNull(failsafe)))))),tuple('association_age',toInt64(countIf(if(battery_status = 'matched', isNull(battery_age_us) OR battery_age_us > 1000000, isNotNull(battery_age_us)) OR if(land_status = 'matched', isNull(land_age_us) OR land_age_us > 1000000, isNotNull(land_age_us)) OR if(vehicle_status_status = 'matched', isNull(vehicle_status_age_us) OR vehicle_status_age_us > 1000000, isNotNull(vehicle_status_age_us))))),tuple('status_domain',toInt64(countIf(battery_status NOT IN ('matched','before_first','stale','rejection_gap') OR land_status NOT IN ('matched','before_first','stale','recording_gap') OR vehicle_status_status NOT IN ('matched','before_first','stale','recording_gap'))))]) AS r,1) AS check_name,tupleElement(r,2) AS violations,multiIf(uniqExact(event_id) = 0,'unknown',tupleElement(r,2) = 0,'ok','fail') AS state FROM ${database}.points LIMIT 32 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

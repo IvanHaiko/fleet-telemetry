@@ -15,6 +15,8 @@ run, the topics, SQL or the archive.
   configurations appear only as path, size and hash.
 - `checkpoints` (no network): the retained checkpoints of the run that have a
   `_metadata` file, newest first.
+- `health` (in the archive namespace): the data-quality checks and the run's
+  storage footprint (runtime/continuous/recording_health.py).
 
 Output never carries coordinates, credentials, keys or event identifiers.
 """
@@ -33,6 +35,7 @@ from typing import cast
 
 from runtime.clickhouse.transport import HttpConfig, _request
 from runtime.continuous.recording_config import kafka_client
+from runtime.continuous.recording_health import measure
 from telemetry.conversion_contract import json_object, object_value, string_value
 from telemetry.local_io import read_bounded
 
@@ -251,7 +254,9 @@ def checkpoints(state: Path, run_id: str) -> Document:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("snapshot", "inventory", "checkpoints"))
+    parser.add_argument(
+        "mode", choices=("snapshot", "inventory", "checkpoints", "health")
+    )
     parser.add_argument("--private", type=Path, default=Path("/private"))
     parser.add_argument("--evidence", type=Path, default=Path("/evidence"))
     parser.add_argument("--state", type=Path, default=Path("/state"))
@@ -260,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.mode == "snapshot":
             document = snapshot(args.private, args.evidence)
+        elif args.mode == "health":
+            document = measure(args.private, args.evidence, args.state)
         else:
             if args.run_id is None or "/" in args.run_id or ".." in args.run_id:
                 raise ValueError("run_id")

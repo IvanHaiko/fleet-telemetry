@@ -1122,3 +1122,26 @@ panels. The same masks are reused in the ASOF check; no blind independence,
 physical synchronization or flight-phase validation is claimed.
 
 The real-flight evidence includes full source checksum/framing and selected-stream count, two deterministic preparations, every stored identity/hash and typed-field readback, SELECT-only refusal, signed plugin/connection checks, real Grafana SQL and headless marker-to-chart navigation with external browser requests blocked. It does not prove live-device, archive, Kafka/Flink, production recovery or multi-browser behavior.
+
+## Run health and dashboard rendering, 2026-11-16
+
+[ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md) adds three
+invariants with focused tests (`tests/test_recording_health.py`):
+
+- **Unmeasured stays unknown.** With no observation, every monitoring signal
+  is `unknown`; a quality check over zero facts is `unknown`, never a pass.
+- **Thresholds give the declared state.** Archive lag, status age, memory
+  share and free disk at and across each boundary yield `ok`, `warn` or
+  `fail` as declared; a completed run with any archive lag fails.
+- **Each quality rule catches its violation.** The generated SQL runs in the
+  pinned ClickHouse image with `clickhouse local` over a tiny authored table
+  with one valid row and one row per rule that breaks exactly that rule; each
+  check counts exactly one violation, clean data passes, empty data is
+  unknown. The dashboards' *Run health* SQL must equal the same generator.
+
+Rendering is checked in a browser, signed in, at full size, with the
+dashboard's queries sent all at once as a refresh sends them. Sequential
+query checks (ADR-0052, ADR-0054) did not reveal the concurrency limit, the
+refused datasource password or the text panels that showed only numbers.
+The check reports counts, states and times only; map panels are judged by
+their point counts, never by coordinates or screenshots.

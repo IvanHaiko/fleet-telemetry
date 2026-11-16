@@ -185,6 +185,7 @@ services:
     volumes:
       - serving-data:/var/lib/clickhouse
       - {type: bind, source: ../runtime/clickhouse/limits.xml, target: /etc/clickhouse-server/config.d/limits.xml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/clickhouse-concurrency.xml, target: /etc/clickhouse-server/config.d/recording-concurrency.xml, read_only: true, bind: {create_host_path: false}}
     tmpfs:
       - /var/log/clickhouse-server:rw,noexec,nosuid,size=32m,uid=101,gid=101
       - /etc/clickhouse-server/users.d:rw,noexec,nosuid,size=1m,uid=101,gid=101
@@ -218,7 +219,8 @@ services:
       - {type: bind, source: "${RECORDING_GRAFANA_PLUGIN:?Run runtime/recording/prepare.py first}", target: /var/lib/grafana/plugins/grafana-clickhouse-datasource, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: ../runtime/recording/grafana/datasources.yml, target: /etc/grafana/provisioning/datasources/recording.yml, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: ../runtime/recording/grafana/dashboards.yml, target: /etc/grafana/provisioning/dashboards/recording.yml, read_only: true, bind: {create_host_path: false}}
-      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/dashboards", target: /var/lib/grafana/dashboards, read_only: true, bind: {create_host_path: false}}
+      # `ops view` points this at current templates rendered for a stored run.
+      - {type: bind, source: "${RECORDING_DASHBOARDS:-${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/dashboards}", target: /var/lib/grafana/dashboards, read_only: true, bind: {create_host_path: false}}
     mem_limit: 768m
     cpus: 1
     pids_limit: 256
