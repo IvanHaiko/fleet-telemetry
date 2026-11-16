@@ -145,6 +145,19 @@ Work in this order:
    must verify brokers, the actual Flink job, archive/serving workers, datasource
    readiness and advancing traffic. Save evidence before history/retention can
    discard it. Provide an operator runbook and a checked restoration procedure.
+   *Status 2026-11-16:* `runtime/recording/ops.py` starts, inspects, stops,
+   preserves and restores a run of either source
+   ([ADR-0055](adr/0055-recording-operations-and-restoration.md),
+   [runbook](guides/operations-runbook.md)). Readiness requires thirteen
+   checks over a declared window (fourteen for a live session, and one more
+   after a restoration), including the run's job checkpointing and
+   input, archive and SQL all advancing; Grafana is checked through
+   `/api/health` only, and its datasource is a manual signed-in step. `stop`
+   collects Flink history, container logs, Kafka state, volume inventories and
+   lineage first. The F09 publisher now continues from its ledger. A
+   whole-profile stop was restored with the runbook commands on short F09 and
+   live debug runs with exact reconciliation. One evidence run per source,
+   under a criterion the maintainer approves first, is still open.
 
 The MVP is ready only when the selected profiles meet all of these observable
 criteria:
@@ -173,6 +186,18 @@ criteria:
   results and untested boundaries are documented. Capture-to-UI refresh, source
   age and publication-to-SQL visibility are separate quantities. No production
   availability or end-to-end exactly-once guarantee follows from this MVP.
+
+**Criteria status, 2026-11-16** (single-machine recording profile, F09 and
+live SITL):
+
+| Criterion | Status | Evidence and what is missing |
+| --- | --- | --- |
+| Identities, units, native time, versions, dispositions and quality agree from input to SQL by exact content | Met for the selected streams | Exact fact hash sets on the complete flight ([ADR-0052](adr/0052-single-machine-recording-profile.md), [ADR-0053](adr/0053-recording-recovery-boundaries.md)) and the live session ([ADR-0054](adr/0054-live-sitl-recording-profile.md)); after a whole-profile restoration ([ADR-0055](adr/0055-recording-operations-and-restoration.md)) |
+| Dashboard on processed ClickHouse results, with historical/stale/unknown states | Partial | F09 and live dashboards read SQL through the datasource (ADR-0052, ADR-0054); the live view shows *stale* and *unknown*. Full-size browser rendering is unchecked, and per-run datasource readiness is a manual signed-in step |
+| Monitoring of admission/rejections, duplicate/late results, archive coverage and lag, serving progress, checkpoint failures, Kafka health and resource/disk budgets | Partial | `ops status` shows archive and processing lag as counts, serving progress, checkpoint counts and failures, broker health and offsets (ADR-0055). Not instrumented and shown as unknown: source admission and rejection counts, duplicate and late dispositions, coverage and lag as alerting signals, broker metrics beyond health, and resource and disk budgets. No monitoring stack was added |
+| Restart/retry keeps identities and duplicate-safe values; isolated reconstruction; rollback without deleting data | Met for the verified failures | Four faults and the archive-only rebuild (ADR-0053); whole-profile stop and resume (ADR-0055); `ops stop` removes nothing. Broker, JobManager-only and host failures listed as not verified remain open |
+| Checksummed inventory, lineage, coverage/reconciliation status and operational evidence; partial runs state their interval | Met for runs operated with `ops` | `collect` and `stop` write inventories, lineage and a `completed`/`partial` manifest (ADR-0055). Runs before 2026-11-16 keep their own, less complete evidence |
+| Limits, failure consequences, measured latency/resources and untested boundaries documented | Partial | [Runbook](guides/operations-runbook.md#operating-limits) and ADR-0052 to ADR-0055. Capture-to-UI refresh in the browser and resource budgets under load are not measured; visibility is measured from SQL |
 
 The broader platform can later add reviewed sources/fields, multi-vehicle
 analytics, longer retention/operation, wider recovery domains and optional AWS

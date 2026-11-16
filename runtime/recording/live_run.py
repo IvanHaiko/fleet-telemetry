@@ -36,7 +36,6 @@ from runtime.recording.live_prepare import prepare_live
 from runtime.recording.profile import (
     PROJECT,
     ROOT,
-    WORKER_IMAGE,
     Document,
     Profile,
     RunFailure,
@@ -118,30 +117,10 @@ def declare(args: argparse.Namespace, out: Path) -> Document:
 
 def launch(run: Profile, args: argparse.Namespace) -> None:
     """Job, observer, workers, gateway, then the simulator and its stream."""
-    submitted = run.docker(*run.compose, *"run --rm -T submit".split(), timeout=600)
-    match = re.search(r"JobID ([0-9a-f]{32})", submitted)
-    require(match is not None, "submit_failed")
-    assert match is not None
-    run.wait(lambda: run.job_running(match[1]), 180, "job_not_running")
-    run.log("job_running", job=match[1])
-    archive = run.inspect(run.container("archive"))
-    run.docker(
-        *(
-            "run",
-            "-d",
-            "--name",
-            run.observer,
-            "--network",
-            f"container:{archive['Id']}",
-        ),
-        *("--read-only", "--user", "10001:10001", "--entrypoint", "python"),
-        *("-v", f"{ROOT.as_posix()}:/workspace:ro"),
-        *("-v", f"{run.private.resolve().as_posix()}:/private:ro"),
-        *("-v", f"{PROJECT}_evidence:/evidence:ro", "-v", f"{run.out.as_posix()}:/out"),
-        *(WORKER_IMAGE, "-P", "-m", "runtime.continuous.recording_observe"),
-        *"--private /private --evidence /evidence --out /out/observe.jsonl".split(),
-        *("--expected", "0", "--interval", str(args.interval)),
-    )
+    job = run.submit()
+    run.wait(lambda: run.job_running(job), 180, "job_not_running")
+    run.log("job_running", job=job)
+    run.start_observer(0, args.interval)
     run.docker(
         *run.compose,
         *"up -d --no-deps live-archive-worker live-serving-worker".split(),

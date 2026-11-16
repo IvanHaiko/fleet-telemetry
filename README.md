@@ -72,6 +72,14 @@ flowchart LR
   rebuild from the archive exactly.
   [ADR-0054](docs/adr/0054-live-sitl-recording-profile.md),
   [guide](docs/guides/live-sitl-recording-run.md)
+- **One operations command and a restoration drill.** `ops.py` starts either
+  source and calls it ready only when the job checkpoints and input, archive
+  and SQL all advance. It saves Flink history, container logs, Kafka state and
+  checksummed inventories before a stop, and after the whole profile is
+  stopped mid-run it restores the job from its newest checkpoint and continues
+  every worker and the source without a gap or a logical repeat.
+  [ADR-0055](docs/adr/0055-recording-operations-and-restoration.md),
+  [runbook](docs/guides/operations-runbook.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The
   repository contains a reproduction, a native regression test prepared for the
@@ -178,7 +186,8 @@ This is a working local research prototype, not a production system.
 | One-machine Kafka/Flink starter | Synthetic runs reconcile end to end | Checkpoint restore in the starter |
 | Synthetic conversion | Deterministic events, identity and manifest checks | Arbitrary devices and firmware |
 | Archive, ClickHouse, Grafana | Replay, deduplication and selected failure/recovery checks on synthetic data | Production recovery; hosted CI for the broker lane |
-| Real flight (F09) | Complete 39-minute flight through the full path on one machine | Keeping SQL current at 1x (Flink association state cost); checkpoint restore |
+| Real flight (F09) | Complete 39-minute flight through the full path on one machine; checkpoint restore and selected faults with exact reconciliation | Broker, JobManager-only and host failures |
+| Operations (recording profile) | One start/status/stop/resume command with readiness checks, evidence collection and a whole-profile restoration on short runs | Evidence runs per source; monitoring of admission, duplicates, coverage alerts and resource budgets |
 | PX4 simulator (SITL) | Live position from source to SQL; a continuous session | Physical vehicles and radio links |
 
 F09 is a public fixed-wing research flight log; SITL is PX4's

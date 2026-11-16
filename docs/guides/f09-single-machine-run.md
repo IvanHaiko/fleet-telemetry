@@ -6,6 +6,10 @@
 and records the first complete run, `f09-full-20261113-002`. Each command below
 that builds, starts or stops services needs explicit maintainer authorization.
 
+For routine operation (start, status, evidence, stop and restoration) use the
+[operator runbook](operations-runbook.md); this guide keeps the manual steps
+and the orchestrated scenario.
+
 ## Prerequisites
 
 - Docker Desktop with at least 12 GiB and 8 CPUs available to the engine. The

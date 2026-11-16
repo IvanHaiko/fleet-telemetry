@@ -45,9 +45,7 @@ from runtime.recording.fault_actions import (
 from runtime.recording.fault_analysis import evaluate
 from runtime.recording.prepare import prepare
 from runtime.recording.profile import (
-    PROJECT,
     ROOT,
-    WORKER_IMAGE,
     Document,
     Profile,
     RunFailure,
@@ -168,24 +166,10 @@ def launch(
     run: Profile, args: argparse.Namespace, expected: int
 ) -> subprocess.Popen[bytes]:
     """Submit the job, start the observer and sampler, then the workers."""
-    submitted = run.docker(*run.compose, *"run --rm -T submit".split(), timeout=600)
-    match = re.search(r"JobID ([0-9a-f]{32})", submitted)
-    require(match is not None, "submit_failed")
-    assert match is not None
-    job = match[1]
+    job = run.submit()
     run.wait(lambda: run.job_running(job), 180, "job_not_running")
     run.log("job_running", job=job)
-    archive = run.inspect(run.container("archive"))["Id"]
-    run.docker(
-        *("run", "-d", "--name", run.observer, "--network", f"container:{archive}"),
-        *("--read-only", "--user", "10001:10001", "--entrypoint", "python"),
-        *("-v", f"{ROOT.as_posix()}:/workspace:ro"),
-        *("-v", f"{run.private.resolve().as_posix()}:/private:ro"),
-        *("-v", f"{PROJECT}_evidence:/evidence:ro", "-v", f"{run.out.as_posix()}:/out"),
-        *(WORKER_IMAGE, "-P", "-m", "runtime.continuous.recording_observe"),
-        *"--private /private --evidence /evidence --out /out/observe.jsonl".split(),
-        *("--expected", str(expected), "--interval", str(args.interval)),
-    )
+    run.start_observer(expected, args.interval)
     sampler = subprocess.Popen(
         [sys.executable, "-m", "runtime.recording.sample_resources"]
         + ["--output", str(run.out / "resources.jsonl"), "--interval", "10"],

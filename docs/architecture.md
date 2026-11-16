@@ -54,6 +54,16 @@ fact only as recomputed from the archived input, because no prepared reference
 exists. Battery and state are associated by receipt order, never by
 measurement time.
 
+*Update 2026-11-16, operations:* one command, `runtime/recording/ops.py`,
+starts, inspects, preserves, stops and restores a run of either source
+([ADR-0055](adr/0055-recording-operations-and-restoration.md)). It reads Docker,
+the Flink REST API, Grafana's health endpoint and a read-only probe in the
+archive namespace; it adds no service. After a whole-profile stop the job is
+resubmitted from the newest retained checkpoint, the workers continue from
+their cursors, the F09 publisher continues from its ledger and the live
+gateway opens a new epoch. Monitoring beyond these status reads remains an
+open gap.
+
 ```mermaid
 sequenceDiagram
     participant K as Kafka input

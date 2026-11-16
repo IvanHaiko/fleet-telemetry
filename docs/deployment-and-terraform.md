@@ -110,6 +110,24 @@ durability. AWS/S3 and stronger off-host recovery remain separately authorized.
 The existing [production recovery gate](guides/production-recovery-gate.md) still owns
 retention margins, preservation response and final recovery admission.
 
+*Update 2026-11-16, recording profile:* `ops collect`, and `ops stop` before it
+stops anything, implement this capture for the single-machine recording
+profile ([ADR-0055](adr/0055-recording-operations-and-restoration.md),
+[runbook](guides/operations-runbook.md#stop-and-evidence)). The policy itself
+is unchanged; the discard points it guards against were measured as:
+
+- Flink job, checkpoint and exception history: JobManager memory only, lost on
+  any JobManager restart, including `ops resume` after a host stop;
+- container logs: json-file rotation at 5 MiB × 2 (2 MiB × 2 for the
+  simulator);
+- committed Kafka consumer offsets: 7 days after a group becomes empty
+  (`offsets.retention.minutes=10080`). The run topics are created with
+  `retention.ms=-1` and `retention.bytes=-1` and do not expire; the broker's
+  168-hour default applies to no run topic.
+
+The `evidence`, `state`, `kafka-data`, `archive-data` and `serving-data`
+volumes, run directories and rebuild databases have no automatic cleanup.
+
 For the stopped 2026-11-10 demo, 7,223 publications are ACK-confirmed and local/PC
 artifacts and volumes are retained. The new replay had no independent archive or
 SQL consumer and only a checked output prefix. Full per-run metrics export and

@@ -33,6 +33,7 @@ the profile described in its report, not every runtime in this repository.
 - [M1 development checks](guides/m1-checks.md) and [contributor guide](../CONTRIBUTING.md).
 - [F09 stream preparation](guides/f09-stream-replay.md) and [bounded integrated F09 evidence](adr/0050-integrated-f09-runtime.md).
 - [Recording inspection](guides/recording-connection.md) and [two-recording view](guides/two-recording-view.md).
+- [Single-machine recording profile](guides/f09-single-machine-run.md), [live SITL session](guides/live-sitl-recording-run.md) and the [operator runbook](guides/operations-runbook.md) for start, status, stop, evidence and restoration.
 - [Live MAVLink observer](guides/live-px4-mavlink.md), [source-to-query position slice](guides/live-position-source-query.md) and [continuous position](guides/continuous-position.md).
 
 The synthetic conversion example needs no private inputs. Recorded-source and

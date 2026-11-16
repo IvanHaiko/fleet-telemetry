@@ -114,17 +114,7 @@ def job_resubmit(run: Profile, fault: Fault) -> Document:
     assert completed is not None
     committed = run.processing_offset()
     path = str(completed["external_path"]).removeprefix("file:")
-    output = run.docker(
-        *run.compose,
-        *"run --rm -T submit submit -py".split(),
-        "/workspace/runtime/pyflink/recording_job.py",
-        *("--config", f"/evidence/{run.run_id}/config/job.json", "--restore", path),
-        timeout=600,
-    )
-    match = re.search(r"JobID ([0-9a-f]{32})", output)
-    require(match is not None, "resubmit_failed")
-    assert match is not None
-    new = match[1]
+    new = run.submit(restore=path)
     point = cast(
         Document, run.wait(lambda: _restored(run, new), 240, "resubmit_restore_timeout")
     )

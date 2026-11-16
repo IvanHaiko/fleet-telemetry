@@ -1,5 +1,29 @@
 # Testing strategy and evidence
 
+## Recording operations and restoration, 2026-11-16
+
+[ADR-0055](adr/0055-recording-operations-and-restoration.md) adds three
+invariant tests and one drill:
+
+- `tests/test_recording_publish_resume.py`: across a stop, every declared F09
+  delivery lands exactly once at the Kafka offset equal to its index, including
+  a stop between the broker's acknowledgement and the ledger write. A broker
+  behind the ledger, a foreign record, a changed or torn ledger and a non-empty
+  topic at a fresh start refuse without publishing. It failed against the
+  unchanged publisher before the change;
+- `tests/test_recording_ops.py`: a run's volume inventory lists each of its
+  files with the hash of its bytes and nothing of another run, even one whose
+  ID starts with the same text; only checkpoints with `_metadata` are offered
+  for a restore, newest first; readiness leaves unmeasured values unknown and
+  fails stalled traffic.
+
+`runtime/recording/recovery_run.py` stops the whole profile mid-run, restores
+it with the runbook commands and requires exact reconciliation, a restore from
+the latest completed checkpoint, a fact acknowledged after the restart in SQL,
+a `partial` outage manifest and a `completed` stop manifest. Readiness,
+Flink, Kafka and Grafana behaviour are established by these runs, not by unit
+tests with simulated services.
+
 ## Single-machine starter checks, 2026-11-11
 
 The [local starter](local-development.md) has its own synthetic source-to-Kafka/
