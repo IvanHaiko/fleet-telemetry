@@ -275,6 +275,21 @@ services:
     profiles: [live]
     command: [runtime.continuous.live_worker, serve, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/live_prepare.py first}/config/serve.json"]
 
+  # One recorded flight as a virtual PX4 (ADR-0060); `fleet` starts one per
+  # file with the file's folder mounted read-only at /input. It shares the
+  # archive namespace, so MAVLink reaches the gateway on loopback.
+  replay-player:
+    <<: *worker
+    profiles: [fleet]
+    environment:
+      PYTHONPATH: /workspace:/deps
+    volumes:
+      - evidence:/evidence
+      - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/live_prepare.py first}", target: /private, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_LIVE_PACKAGES:-/nonexistent}", target: /deps, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 512m
+
   px4-sitl:
     image: px4io/px4-sitl@sha256:39d5a950208a5a45fccbbb0670bd8716663ed0b350ef738447581395e0c92d97
     profiles: [live]

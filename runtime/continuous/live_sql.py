@@ -105,7 +105,10 @@ def _project(output: Document) -> Document:
         "received_unix_ms": _integer(fact["received_unix_ms"], 2**63),
         "capture_epoch": _text(capture["epoch"], r"[0-9a-f]{32}"),
         "capture_sequence": _integer(capture["sequence"], 2**63),
-        **{name: _number(position[name]) for name in _POSITION},
+        **{
+            name: None if position[name] is None else _number(position[name])
+            for name in _POSITION
+        },
         "source_cluster_id": _text(source["cluster_id"], r"[A-Za-z0-9_-]{1,128}"),
         "source_topic_id": _text(source["topic_id"], r"[A-Za-z0-9+/_-]{1,128}"),
         "source_topic": _text(source["topic"], r"[A-Za-z0-9._-]{1,249}"),
@@ -281,3 +284,144 @@ class LiveSQL(RecordingSQL):
         }
         if not any(_typed_equal(value, row, columns) for value in actual):
             raise ValueError("live_sql_readback")
+
+
+# Fleet sessions (ADR-0060): the same facts with the vehicle that produced
+# them; position fields a replay could not derive are null.
+_FLEET_COLUMNS = {
+    **{
+        name: "Nullable(Float64)" if name in _POSITION[3:] else kind
+        for name, kind in _COLUMNS.items()
+    },
+    "vehicle": "String",
+    "vehicle_label": "String",
+    "source_kind": "String",
+    "system_id": "UInt8",
+}
+_REPLAY_STATUSES = {"starting", "running", "paused", "ended", "stopped", "failed"}
+
+
+def _project_fleet(output: Document) -> Document:
+    row = _project(output)
+    source = object_value(object_value(object_value(output)["fact"])["source"])
+    kind = _text(source["kind"], r"px4-sitl|ulog-replay")
+    row["vehicle"] = _text(source["vehicle"], r"[A-Za-z0-9._-]{1,128}")
+    row["vehicle_label"] = (
+        _text(source["label"], r"ULog [0-9a-f]{8}")
+        if kind == "ulog-replay"
+        else row["vehicle"]
+    )
+    row["source_kind"] = kind
+    row["system_id"] = _integer(source["system"], 256)
+    return row
+
+
+class FleetSQL(LiveSQL):
+    """Facts, collector rows and current state per vehicle."""
+
+    columns = _FLEET_COLUMNS
+    project = staticmethod(_project_fleet)
+
+    def initialize(self) -> None:
+        super().initialize()
+        db = self.database
+        self._execute(
+            f"CREATE TABLE {db}.vehicles (written_ms Int64, gateway_written_ms "
+            "Int64, vehicle String, label String, kind String, system_id UInt8, "
+            "last_receipt_ms Nullable(Int64), last_heartbeat_ms Nullable(Int64), "
+            "published UInt64, refusal Nullable(String), "
+            "replay_status Nullable(String)) ENGINE=MergeTree "
+            "ORDER BY (vehicle, written_ms)"
+        )
+        limit = LIVE_LIMIT_MS
+        shown = (*_POSITION, *_BATTERY, *_STATE)
+        latest = ", ".join(
+            ("received_unix_ms", *shown, "battery_status", "state_status")
+        )
+        fields = ", ".join(
+            f"if(connection = 'observed' AND position_age_ms <= {limit}, "
+            f"tupleElement(f.last, {index + 2}), NULL) AS {name}"
+            for index, name in enumerate(shown)
+        )
+        # One row per vehicle the gateway has declared. Health needs a
+        # current gateway snapshot and current serving progress; a replay
+        # whose player says it ended shows `ended` once it falls silent.
+        self._execute(
+            f"CREATE VIEW {db}.fleet_state AS "
+            "WITH toUnixTimestamp64Milli(now64(3)) AS now_ms, "
+            f"(SELECT max(written_ms) FROM {db}.progress) AS serving_ms "
+            "SELECT v.vehicle AS vehicle, v.label AS label, v.kind AS kind, "
+            "v.system_id AS system_id, v.replay_status AS replay_status, "
+            "v.refusal AS refusal, "
+            "now_ms - v.gateway_ms AS collector_age_ms, "
+            "now_ms - v.heartbeat_ms AS source_receipt_age_ms, "
+            "if(f.count_facts = 0, NULL, now_ms - toInt64(tupleElement(f.last, 1))) "
+            "AS position_receipt_age_ms, "
+            "now_ms - toInt64(tupleElement(f.last, 1)) AS position_age_ms, "
+            f"multiIf(now_ms - v.gateway_ms > {limit} OR serving_ms = 0 "
+            f"OR now_ms - serving_ms > {limit}, 'unknown', "
+            f"v.heartbeat_ms IS NULL OR now_ms - v.heartbeat_ms > {limit}, "
+            "if(v.replay_status = 'ended', 'ended', 'stale'), 'observed') "
+            "AS connection, f.count_facts AS facts, "
+            f"{fields}, "
+            f"if(f.count_facts = 0, NULL, tupleElement(f.last, {len(shown) + 2})) "
+            "AS battery_status, "
+            f"if(f.count_facts = 0, NULL, tupleElement(f.last, {len(shown) + 3})) "
+            "AS state_status "
+            "FROM (SELECT vehicle, argMax(label, written_ms) AS label, "
+            "argMax(kind, written_ms) AS kind, "
+            "argMax(system_id, written_ms) AS system_id, "
+            "argMax(replay_status, written_ms) AS replay_status, "
+            "argMax(refusal, written_ms) AS refusal, "
+            "max(gateway_written_ms) AS gateway_ms, "
+            "argMax(last_heartbeat_ms, written_ms) AS heartbeat_ms "
+            f"FROM {db}.vehicles GROUP BY vehicle) AS v "
+            "LEFT JOIN (SELECT vehicle, count() AS count_facts, "
+            f"argMax(tuple({latest}), input_offset) AS last "
+            f"FROM {db}.facts GROUP BY vehicle) AS f ON f.vehicle = v.vehicle"
+        )
+
+    def vehicles(
+        self,
+        status: Document,
+        players: dict[str, str],
+    ) -> None:
+        """One row per vehicle from one gateway snapshot and player states."""
+        listed = object_value(status.get("vehicles", {}))
+        written = time.time_ns() // 1_000_000
+        gateway_ms = _integer(status.get("written_ms"), 2**63)
+        rows: list[Document] = []
+
+        def optional(row: Document, name: str) -> int | None:
+            value = row.get(name)
+            return None if value is None else _integer(value, 2**63)
+
+        for vehicle, value in sorted(listed.items()):
+            row = object_value(value)
+            refusal = row.get("refusal")
+            replay = players.get(vehicle)
+            if replay is not None and replay not in _REPLAY_STATUSES:
+                raise ValueError("fleet_sql_replay_status")
+            rows.append(
+                {
+                    "written_ms": written,
+                    "gateway_written_ms": gateway_ms,
+                    "vehicle": _text(vehicle, r"[A-Za-z0-9._-]{1,128}"),
+                    "label": _text(row.get("label"), r"[A-Za-z0-9 ._-]{1,64}"),
+                    "kind": _text(row.get("kind"), r"px4-sitl|ulog-replay"),
+                    "system_id": _integer(row.get("system"), 256),
+                    "last_receipt_ms": optional(row, "last_receipt_ms"),
+                    "last_heartbeat_ms": optional(row, "last_heartbeat_ms"),
+                    "published": _integer(row.get("published"), MAX_EVENTS + 1),
+                    "refusal": None
+                    if refusal is None
+                    else _text(refusal, r"[a-z0-9_]{1,64}"),
+                    "replay_status": replay,
+                }
+            )
+        if rows:
+            self._execute(
+                f"INSERT INTO {self.database}.vehicles SETTINGS async_insert=0 "
+                "FORMAT JSONEachRow",
+                b"".join(json_line(row) for row in rows),
+            )

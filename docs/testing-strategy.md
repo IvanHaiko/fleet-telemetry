@@ -81,7 +81,7 @@ delivery/recovery, archive coverage and SQL/Grafana integration are untested her
 
 ## Integrated MVP evidence, 2026-11-10
 
-The [MVP criteria](roadmap.md#integrated-mvp-priority-2026-11-10) under
+The [MVP criteria](roadmap-history.md#integrated-mvp-priority-2026-11-10) under
 [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) require one
 source-to-query profile, not the union of unrelated component experiments.
 This section specifies required future evidence; no additional runtime check
@@ -338,7 +338,7 @@ Current delivery policy, 2026-10-26: prioritize a working source-to-query
 scenario, three useful queries and meaningful failure evidence. Verification
 should protect that result without becoming a separate platform project.
 See [the contributor guide](../CONTRIBUTING.md) and
-[the active plan](roadmap.md#active-continuation-and-proportional-delivery-2026-10-26).
+[the active plan](roadmap-history.md#active-continuation-and-proportional-delivery-2026-10-26).
 
 Small reversible changes normally use one session and relevant existing checks.
 Medium changes use a stated scope, implementation and focused validation.

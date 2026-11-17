@@ -9,7 +9,7 @@ ClickHouse, Grafana; [ADR-0052](0052-single-machine-recording-profile.md))
 admitted one file only. About twenty modules compared inputs with the F09
 checksum and wrote its vehicle pseudonym, battery normalization version and
 identity profile names as constants. Step 2 of the
-[active product goal](../roadmap.md#active-product-goal-2026-11-04) asks for a
+[active product goal](../roadmap-history.md#active-product-goal-2026-11-04) asks for a
 second real log through the same entry point and the same view, without
 editing SQL or dashboards per recording, after a review of its firmware,
 rights, field meanings and time mapping.

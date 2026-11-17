@@ -11,7 +11,7 @@ Every new flight therefore needed a code entry, a hand-written battery job and
 local paths, even when its firmware and embedded layouts were already
 reviewed. A file that was refused gave the operator no answer to "what can I
 see in this file?" without starting Kafka, Flink, ClickHouse and Grafana.
-Steps 1 and 3 of the [roadmap](../roadmap.md#next-steps-after-the-mvp-evidence-runs-2026-11-17)
+Steps 1 and 3 of the [roadmap](../roadmap-history.md#next-steps-after-the-mvp-evidence-runs-2026-11-17)
 ask for both; the background is in the
 [design notes](../ulog-replay-and-monitoring.md).
 

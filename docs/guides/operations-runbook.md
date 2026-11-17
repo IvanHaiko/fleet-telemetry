@@ -71,6 +71,28 @@ Live SITL session:
 .venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source live
 ```
 
+Fleet of recorded flights as virtual vehicles
+([ADR-0060](../adr/0060-recorded-flights-as-virtual-vehicles.md)): start a
+session without a simulator, then add one ULog file per vehicle while it runs.
+
+```powershell
+.venv/Scripts/python.exe -m runtime.recording.fleet start --run-id <run>
+.venv/Scripts/python.exe -m runtime.recording.fleet add --run-id <run> --file <a.ulg> [--start-us N --end-us N]
+.venv/Scripts/python.exe -m runtime.recording.fleet add --run-id <run> --file <b.ulg>
+.venv/Scripts/python.exe -m runtime.recording.fleet pause --run-id <run> --file <a.ulg>
+.venv/Scripts/python.exe -m runtime.recording.fleet resume --run-id <run> --file <a.ulg>
+.venv/Scripts/python.exe -m runtime.recording.fleet status --run-id <run>
+.venv/Scripts/python.exe -m runtime.recording.fleet complete --run-id <run>
+.venv/Scripts/python.exe -m runtime.recording.fleet verify --run-id <run>
+.venv/Scripts/python.exe -m runtime.recording.fleet stop --run-id <run>
+```
+
+`add` plans the file on the host first; a file it cannot replay prints a
+reason (for example `structure_incomplete` or `no_replayable_samples`) and no
+player starts. The dashboard is *Fleet: recorded flights as virtual vehicles*.
+A session holds at most eight vehicles, 50,000 deliveries and 30 minutes of
+gateway lifetime, so long flights play a declared interval.
+
 `start` prepares the scope, starts Kafka, Flink, SeaweedFS, ClickHouse and
 Grafana, initializes fresh topics, database and bucket, submits the job,
 starts an observer, the archive and serving workers and the source, and then

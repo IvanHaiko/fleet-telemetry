@@ -2,7 +2,7 @@
 
 ## Result and boundary
 
-The second-source increment in the [active roadmap](../roadmap.md#active-product-goal-2026-11-04)
+The second-source increment in the [active roadmap](../roadmap-history.md#active-product-goal-2026-11-04)
 adds registered F01 alongside F09, through `runtime.flight_analytics.recording`
 and one recording-selectable Grafana dashboard. [ADR-0044](../adr/0044-two-recording-research-view.md)
 keeps it an exact-file historical research scope. There is no general unknown-

@@ -178,6 +178,23 @@ and the association is never presented as one by measurement time. A position
 repeated under another receipt is a repeat; competing content at the same
 native time refuses. No existing contract changes.
 
+Recorded flights replayed as virtual vehicles
+([ADR-0060](adr/0060-recorded-flights-as-virtual-vehicles.md)) add:
+
+- `mavlink-vehicle-event-v1`: the same messages and native integers from a
+  source of kind `ulog-replay`, whose scope names the original's checksum,
+  firmware, position topic, system ID and which fields the file supplied.
+  Its position identity is the SHA-256 of the profile, the original's
+  `source_id` and `time_boot_ms`; the system ID is a session assignment and
+  never part of it. SITL events keep `px4-live-event-v1`.
+- `mavlink-fleet-session-v1` (`telemetry/fleet_runtime.py`): a session whose
+  vehicles join with their first event, at most eight, each associated by
+  receipt order with its own battery and state only.
+- In a fact from a replay, a field its scope marks unavailable is null, and
+  so are the player's own heartbeat fields (system status always; armed and
+  base mode unless the file supplied arming state). Units follow the field
+  signatures listed in the ADR; enumerations are not interpreted.
+
 The [second recording and shared projection](guides/two-recording-view.md#shared-storage-and-interface)
 add `f01-recording-inspection-v1`, source-bound `f01-state-research-v1` identities
 and `recording-view-v1`. F01 observations are commander records with native time;

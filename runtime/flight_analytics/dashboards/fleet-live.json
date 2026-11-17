@@ -1,0 +1,348 @@
+{
+ "__requires": [
+  {
+   "type": "grafana",
+   "id": "grafana",
+   "name": "Grafana",
+   "version": "13.2.4"
+  },
+  {
+   "type": "datasource",
+   "id": "grafana-clickhouse-datasource",
+   "name": "ClickHouse",
+   "version": "4.23.2"
+  }
+ ],
+ "uid": "fleet-live",
+ "title": "Fleet: recorded flights as virtual vehicles",
+ "description": "Replay players over MAVLink (ADR-0060).",
+ "schemaVersion": 39,
+ "version": 1,
+ "editable": false,
+ "timezone": "utc",
+ "tags": [
+  "telemetry",
+  "live",
+  "fleet",
+  "replay"
+ ],
+ "refresh": "5s",
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "database",
+    "type": "constant",
+    "hide": 2,
+    "skipUrlSync": true,
+    "query": "fleet_template_db",
+    "current": {
+     "text": "fleet_template_db",
+     "value": "fleet_template_db"
+    },
+    "options": [
+     {
+      "text": "fleet_template_db",
+      "value": "fleet_template_db",
+      "selected": true
+     }
+    ],
+    "multi": false,
+    "includeAll": false
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "title": "Fleet",
+   "type": "text",
+   "description": "What the dashboard shows.",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 3
+   },
+   "datasource": {
+    "type": "grafana-clickhouse-datasource",
+    "uid": "mvp-f09-clickhouse"
+   },
+   "targets": [],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unknown"
+    },
+    "overrides": []
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**Fleet of virtual vehicles.** Each recorded ULog file plays as its own virtual PX4 and sends MAVLink to the same gateway a physical PX4 would use (ADR-0060). Rows marked *replay of recording* are recordings, not live aircraft. **Connection** is *observed* while that vehicle's heartbeat arrived in the last 3 s and the gateway and serving reports are current; *stale* when it falls silent (a paused player); *ended* when its file is over; *unknown* when the gateway or serving report is missing. A value the file does not contain stays Unknown; the player's own heartbeat never becomes a recorded state."
+   }
+  },
+  {
+   "id": 2,
+   "title": "Vehicles",
+   "type": "table",
+   "description": "One row per declared vehicle, from fleet_state.",
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 24,
+    "h": 7
+   },
+   "datasource": {
+    "type": "grafana-clickhouse-datasource",
+    "uid": "mvp-f09-clickhouse"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-clickhouse-datasource",
+      "uid": "mvp-f09-clickhouse"
+     },
+     "queryType": "table",
+     "editorType": "sql",
+     "format": 1,
+     "rawSql": "SELECT label AS Vehicle, if(kind = 'ulog-replay', 'replay of recording', 'live PX4') AS Source, connection AS Connection, ifNull(replay_status, '-') AS Player, round(source_receipt_age_ms / 1000, 1) AS `Receipt age (s)`, facts AS Positions, round(altitude_msl_m, 1) AS `Altitude MSL (m)`, round(ground_speed_m_s, 1) AS `Ground speed (m/s)`, round(voltage_v, 2) AS `Voltage (V)`, round(remaining_fraction * 100) AS `Battery (%)`, multiIf(armed IS NULL, 'unknown', armed = 1, 'armed', 'disarmed') AS Armed, ifNull(refusal, '') AS Refusal FROM ${database}.fleet_state ORDER BY system_id SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unknown"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 3,
+   "title": "Tracks and last positions",
+   "type": "geomap",
+   "description": "One point per native second per vehicle; the larger marker is the last position while observed. No external tiles.",
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 14,
+    "h": 14
+   },
+   "datasource": {
+    "type": "grafana-clickhouse-datasource",
+    "uid": "mvp-f09-clickhouse"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-clickhouse-datasource",
+      "uid": "mvp-f09-clickhouse"
+     },
+     "queryType": "table",
+     "editorType": "sql",
+     "format": 1,
+     "rawSql": "SELECT vehicle_label AS label, system_id, tupleElement(argMin(tuple(latitude_deg, longitude_deg), native_time_boot_ms), 1) AS latitude, tupleElement(argMin(tuple(latitude_deg, longitude_deg), native_time_boot_ms), 2) AS longitude FROM ${database}.points GROUP BY vehicle_label, system_id, intDiv(native_time_boot_ms, 1000) ORDER BY system_id LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "grafana-clickhouse-datasource",
+      "uid": "mvp-f09-clickhouse"
+     },
+     "queryType": "table",
+     "editorType": "sql",
+     "format": 1,
+     "rawSql": "SELECT label, system_id, latitude_deg AS latitude, longitude_deg AS longitude FROM ${database}.fleet_state WHERE latitude_deg IS NOT NULL SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unknown",
+     "color": {
+      "mode": "continuous-GrYlRd"
+     },
+     "min": 2,
+     "max": 9
+    },
+    "overrides": []
+   },
+   "options": {
+    "view": {
+     "id": "fit",
+     "allLayers": true,
+     "padding": 10,
+     "maxZoom": 18
+    },
+    "basemap": {
+     "type": "xyz",
+     "name": "No external tiles",
+     "config": {
+      "url": "http://127.0.0.1:1/{z}/{x}/{y}.png"
+     }
+    },
+    "controls": {
+     "showZoom": true,
+     "mouseWheelZoom": true
+    },
+    "layers": [
+     {
+      "name": "Offline country boundaries",
+      "type": "geojson",
+      "tooltip": false,
+      "opacity": 1,
+      "config": {
+       "src": "public/maps/countries.geojson",
+       "rules": [],
+       "style": {
+        "color": {
+         "fixed": "#5794F2"
+        },
+        "opacity": 0.2,
+        "size": {
+         "fixed": 2
+        }
+       }
+      }
+     },
+     {
+      "type": "markers",
+      "name": "Tracks",
+      "filterData": {
+       "id": "byRefId",
+       "options": "A"
+      },
+      "location": {
+       "mode": "coords",
+       "latitude": "latitude",
+       "longitude": "longitude"
+      },
+      "config": {
+       "showLegend": false,
+       "style": {
+        "color": {
+         "field": "system_id",
+         "fixed": "orange"
+        },
+        "size": {
+         "fixed": 3
+        },
+        "opacity": 0.7
+       }
+      }
+     },
+     {
+      "type": "markers",
+      "name": "Last position",
+      "filterData": {
+       "id": "byRefId",
+       "options": "B"
+      },
+      "location": {
+       "mode": "coords",
+       "latitude": "latitude",
+       "longitude": "longitude"
+      },
+      "config": {
+       "showLegend": false,
+       "style": {
+        "color": {
+         "field": "system_id",
+         "fixed": "orange"
+        },
+        "size": {
+         "fixed": 12
+        },
+        "opacity": 1,
+        "text": {
+         "field": "label",
+         "mode": "field"
+        },
+        "textConfig": {
+         "fontSize": 12,
+         "offsetY": -14
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": 4,
+   "title": "Altitude MSL by vehicle",
+   "type": "timeseries",
+   "description": "Receipt time on the horizontal axis; each file keeps its own clock.",
+   "gridPos": {
+    "x": 14,
+    "y": 10,
+    "w": 10,
+    "h": 7
+   },
+   "datasource": {
+    "type": "grafana-clickhouse-datasource",
+    "uid": "mvp-f09-clickhouse"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-clickhouse-datasource",
+      "uid": "mvp-f09-clickhouse"
+     },
+     "queryType": "timeseries",
+     "editorType": "sql",
+     "format": 0,
+     "rawSql": "SELECT toDateTime64(received_unix_ms / 1000, 3) AS time, vehicle_label AS vehicle, altitude_msl_m AS value FROM ${database}.points WHERE altitude_msl_m IS NOT NULL ORDER BY time LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unknown",
+     "unit": "lengthm",
+     "displayName": "${__field.labels.vehicle}"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 5,
+   "title": "Battery remaining by vehicle",
+   "type": "timeseries",
+   "description": "Only receipt-ordered battery summaries; a file without a battery has no line.",
+   "gridPos": {
+    "x": 14,
+    "y": 17,
+    "w": 10,
+    "h": 7
+   },
+   "datasource": {
+    "type": "grafana-clickhouse-datasource",
+    "uid": "mvp-f09-clickhouse"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "grafana-clickhouse-datasource",
+      "uid": "mvp-f09-clickhouse"
+     },
+     "queryType": "timeseries",
+     "editorType": "sql",
+     "format": 0,
+     "rawSql": "SELECT toDateTime64(received_unix_ms / 1000, 3) AS time, vehicle_label AS vehicle, remaining_fraction * 100 AS value FROM ${database}.points WHERE remaining_fraction IS NOT NULL ORDER BY time LIMIT 4096 SETTINGS readonly=1,max_execution_time=10,max_threads=1,max_memory_usage=268435456,max_rows_to_read=50000,max_bytes_to_read=64000000,read_overflow_mode='throw',max_result_rows=4096,max_result_bytes=4194304,result_overflow_mode='throw'"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unknown",
+     "unit": "percent",
+     "min": 0,
+     "displayName": "${__field.labels.vehicle}"
+    },
+    "overrides": []
+   }
+  }
+ ]
+}

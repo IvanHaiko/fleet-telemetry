@@ -7,7 +7,7 @@ the commands and existing outputs remain valid without `--serve`.
 
 ## Product boundary
 
-The [active product goal](../roadmap.md#active-product-goal-2026-11-04) is a supported
+The [active product goal](../roadmap-history.md#active-product-goal-2026-11-04) is a supported
 source-to-state workflow. This increment connects the exact retained F09 original
 to one local GPS/battery/recorded-state inspection command. It reuses the reviewed
 research mappings, pinned toolchain and existing Grafana/ClickHouse view, with no

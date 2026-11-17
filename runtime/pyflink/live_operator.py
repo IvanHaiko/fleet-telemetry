@@ -1,4 +1,4 @@
-"""One checkpointed receipt-ordered lane for a live PX4 SITL session."""
+"""One checkpointed receipt-ordered lane for a live session: SITL or a fleet."""
 
 import hashlib
 from collections.abc import Iterator
@@ -13,13 +13,18 @@ from telemetry.conversion_contract import (
     object_value,
     require_keys,
 )
+from telemetry.fleet_runtime import (
+    MAX_FLEET_HEAD_BYTES,
+    FleetRuntime,
+    make_runtime,
+    runtime_session,
+)
 from telemetry.live_event import event_bytes, event_key, read_event
 from telemetry.live_runtime import (
     MAX_HEAD_BYTES,
     Document,
     LiveRuntime,
     make_output,
-    session_config,
 )
 from telemetry.recording_output import MAX_EVENTS, _identifier, _integer, _topic_id
 
@@ -41,7 +46,7 @@ def validate_live_config(config: Document) -> None:
     _topic_id(source["topic_id"])
     if source["topic"] != config["input_topic"]:
         raise ValueError("live_job_source")
-    session = session_config(object_value(config.get("session")))
+    session = runtime_session(object_value(config.get("session")))
     if session["run_id"] != config["run_id"]:
         raise ValueError("live_job_session")
     if config.get("session_sha256") != hashlib.sha256(json_line(session)).hexdigest():
@@ -83,6 +88,11 @@ class LiveOperator(KeyedProcessFunction):
             )
         ).hexdigest()
 
+    @property
+    def head_limit(self) -> int:
+        fleet = isinstance(self.runtime, FleetRuntime)
+        return MAX_FLEET_HEAD_BYTES if fleet else MAX_HEAD_BYTES
+
     def open(self, runtime_context: RuntimeContext) -> None:
         self.state = runtime_context.get_state(
             ValueStateDescriptor("live-runtime-head-v1", Types.STRING())
@@ -90,7 +100,7 @@ class LiveOperator(KeyedProcessFunction):
         self.signatures = runtime_context.get_map_state(
             MapStateDescriptor("live-signatures-v1", Types.STRING(), Types.STRING())
         )
-        self.runtime: LiveRuntime | None = None
+        self.runtime: LiveRuntime | FleetRuntime | None = None
         metrics = runtime_context.get_metrics_group()
         self.counters = {
             name: metrics.counter("live_" + name)
@@ -102,17 +112,17 @@ class LiveOperator(KeyedProcessFunction):
             return cast(str, self.signatures.get(identity))
         return None
 
-    def _load(self) -> LiveRuntime:
+    def _load(self) -> LiveRuntime | FleetRuntime:
         if self.runtime is not None:
             return self.runtime
-        runtime = LiveRuntime(
+        runtime = make_runtime(
             object_value(self.config["session"]),
             max_events=cast(int, self.config["max_deliveries"]),
         )
         stored = self.state.value()
         head = None
         if stored is not None:
-            if len(stored) > MAX_HEAD_BYTES:
+            if len(stored) > self.head_limit:
                 raise ValueError("live_operator_state_limit")
             row = json_object(stored.encode("utf-8"))
             require_keys(row, {"binding", "head"})
@@ -150,7 +160,7 @@ class LiveOperator(KeyedProcessFunction):
             packet = json_line(
                 {"binding": self.binding, "head": runtime.checkpoint_head()}
             )
-            if len(packet) > MAX_HEAD_BYTES:
+            if len(packet) > self.head_limit:
                 raise ValueError("live_operator_state_limit")
             output = None
             if fact is not None:

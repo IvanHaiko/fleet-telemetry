@@ -1,6 +1,6 @@
 # Documentation guide
 
-Start with the [project overview and runnable synthetic example](../README.md).
+Start with the [project overview](../README.md).
 The project has accumulated separate experiments; a dated success applies to
 the profile described in its report, not every runtime in this repository.
 
@@ -20,7 +20,7 @@ the profile described in its report, not every runtime in this repository.
 | --- | --- |
 | [Architecture](architecture.md) | Component responsibilities, delivery semantics and open decisions |
 | [Data contracts](data-contracts.md) | Identity, units, clocks, missing values and compatibility |
-| [Roadmap](roadmap.md) | Acceptance criteria, sequencing and remaining work |
+| [Roadmap](roadmap.md) | Current state, next steps and milestone status; earlier plans in the [history](roadmap-history.md) |
 | [Testing strategy](testing-strategy.md) | Invariants and required evidence |
 | [Deployment](deployment-and-terraform.md) | Local runtime, resource/security boundaries and the cloud gate |
 | [Architecture decisions](adr/) | Accepted and proposed choices with their consequences |

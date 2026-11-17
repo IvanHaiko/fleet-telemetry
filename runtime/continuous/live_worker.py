@@ -21,7 +21,7 @@ from pathlib import Path
 from runtime.clickhouse.transport import HttpConfig
 from runtime.continuous.kafka import observation
 from runtime.continuous.live_gateway import run as gateway
-from runtime.continuous.live_sql import LiveSQL
+from runtime.continuous.live_sql import FleetSQL, LiveSQL
 from runtime.continuous.recording_batch import ServingBatch
 from runtime.continuous.recording_config import (
     Document,
@@ -41,8 +41,15 @@ from telemetry.conversion_contract import (
     object_value,
     string_value,
 )
+from telemetry.fleet_runtime import (
+    FLEET_PROFILE,
+    make_runtime,
+    runtime_session,
+)
 from telemetry.live_event import event_key, read_event
-from telemetry.live_runtime import LiveRuntime, read_output, session_config
+from telemetry.live_runtime import (
+    read_output,
+)
 from telemetry.local_io import read_bounded
 
 SESSION_KEY = "session.json"
@@ -58,6 +65,17 @@ def _published(root: Path) -> int | None:
     return integer_value(marker["published"])
 
 
+def player_states(root: Path) -> dict[str, str]:
+    """Each replay player's own status (ADR-0060), by vehicle."""
+    states: dict[str, str] = {}
+    folder = root / "players"
+    if folder.is_dir():
+        for path in sorted(folder.glob("*.status.json"))[:16]:
+            row = json_object(read_bounded(path, 8192))
+            states[string_value(row["vehicle"])] = string_value(row["status"])
+    return states
+
+
 def archive(config: Document, root: Path) -> None:
     kafka = kafka_client(config)
     source = object_value(object_value(config["sources"])["input"])
@@ -70,7 +88,7 @@ def archive(config: Document, root: Path) -> None:
     limit = integer_value(config["max_deliveries"])
     rows: list[Document] = []
     try:
-        body = json_line(session_config(object_value(config["session"])))
+        body = json_line(runtime_session(object_value(config["session"])))
         writer.create(SESSION_KEY, body)
         require(
             reader.read(SESSION_KEY, digest(body), len(body)) == body,
@@ -136,7 +154,7 @@ class ArchivedFacts:
 
     def __init__(self, config: Document, reader: ArchiveStore, root: Path) -> None:
         self.config, self.reader = config, reader
-        self.session = session_config(object_value(config["session"]))
+        self.session = runtime_session(object_value(config["session"]))
         body = json_line(self.session)
         require(
             reader.read(SESSION_KEY, digest(body), len(body)) == body,
@@ -151,7 +169,7 @@ class ArchivedFacts:
         }
         immutable(path, canonical(origin))
         self.verifier = SegmentedArchive(reader, reader, path, self.plan)
-        self.runtime = LiveRuntime(
+        self.runtime = make_runtime(
             self.session, max_events=integer_value(config["max_deliveries"])
         )
         self.archived = 0
@@ -222,7 +240,10 @@ def serve(config: Document, root: Path) -> None:
             15,
         )
 
-    sql = LiveSQL(connection("sql_admin"), connection("sql_reader"))
+    fleet = object_value(config["session"]).get("profile") == FLEET_PROFILE
+    sql = (FleetSQL if fleet else LiveSQL)(
+        connection("sql_admin"), connection("sql_reader")
+    )
     stopped, deadline = lifetime(config)
     consumer = kafka.consumer(string_value(config["run_id"]) + "-serve")
     path = root / "serving-cursor.json"
@@ -286,9 +307,11 @@ def serve(config: Document, root: Path) -> None:
             last = now
             status_path = root / "gateway-status.json"
             if status_path.exists():
-                status = json_object(read_bounded(status_path, 8192))
+                status = json_object(read_bounded(status_path, 65536))
                 if status.get("written_ms") != collected:
                     sql.collector(status)
+                    if isinstance(sql, FleetSQL):
+                        sql.vehicles(status, player_states(root))
                     collected = status.get("written_ms")
                     gateway_published = integer_value(status["published"])
             published = _published(root)

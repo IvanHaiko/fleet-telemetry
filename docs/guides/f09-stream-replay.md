@@ -3,7 +3,7 @@
 ## Implemented boundary, 2026-11-11
 
 [ADR-0049](../adr/0049-bounded-f09-stream-events.md) scopes an offline step toward
-the [integrated MVP](../roadmap.md#integrated-mvp-priority-2026-11-10). The preparer
+the [integrated MVP](../roadmap-history.md#integrated-mvp-priority-2026-11-10). The preparer
 exposes GPS, battery, land-detector and commander observations separately. The
 reference processor consumes their ordered stream and emits GPS-centred facts.
 Neither command starts Kafka, Flink, S3, SQL or dashboards; this does not complete

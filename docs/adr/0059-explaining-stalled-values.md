@@ -9,7 +9,7 @@ service is added.
 ADR-0056 states whether each stage is healthy, but an operator who sees a
 value stop changing still has to work out which stage stopped: the source,
 the replay publisher, the archive or serving. Step 2 of the
-[roadmap](../roadmap.md#next-steps-after-the-mvp-evidence-runs-2026-11-17)
+[roadmap](../roadmap-history.md#next-steps-after-the-mvp-evidence-runs-2026-11-17)
 asks for source mode, last source progress, archive progress and last
 query-visible progress side by side, each on a clock ADR-0054 qualifies, and
 for distinct explanations of a silent source, a paused or ended replay and
