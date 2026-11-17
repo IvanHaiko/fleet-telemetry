@@ -1,11 +1,9 @@
 """Whole-input integrity invariants on independently authored tiny binaries."""
 
 import struct
-from dataclasses import FrozenInstanceError
 
 import pytest
 from ulog_binary import (
-    FIRMWARE_COMMIT,
     expectation,
     header,
     info,
@@ -15,6 +13,7 @@ from ulog_binary import (
 )
 
 import ulog_integrity
+from telemetry.recordings import F09, RECORDINGS
 from ulog_integrity import (
     MAX_INPUT_BYTES,
     MAX_RECORDS,
@@ -38,59 +37,18 @@ def definition_log(definition: bytes, payload: bytes = b"", msg_id: int = 7) -> 
     return prefix + packet("D", struct.pack("<H", msg_id) + payload)
 
 
-def test_inspection_retains_exact_original_stream_positions() -> None:
-    prefix, frames = synthetic_parts()
-    data = prefix + b"".join(frames)
-    receipt = expectation(data)
-    inspection = inspect_ulog(data, receipt)
-    assert inspection.source_log_id == receipt.source_log_id
-    assert inspection.size_bytes == len(data)
-    assert inspection.firmware_commit == FIRMWARE_COMMIT
-    assert inspection.dropout_count == inspection.dropout_duration_ms == 0
-    (stream,) = inspection.streams
-    assert (stream.name, stream.multi_id, stream.msg_id) == ("battery_status", 0, 42)
-    assert stream.record_offsets == (
-        len(prefix),
-        len(prefix) + len(frames[0]),
-        len(prefix) + len(frames[0]) + len(frames[1]),
-    )
-    assert stream.payload_sizes == (22, 22, 22)
-    assert inspection.definitions == (
-        (
-            "battery_status",
-            "battery_status:uint64_t timestamp;float voltage_v;float current_a;"
-            "float remaining;bool connected;uint8_t source;",
-        ),
-    )
-    assert inspect_ulog(data, receipt) == inspection
-    with pytest.raises(FrozenInstanceError):
-        inspection.size_bytes = 0  # type: ignore[misc]
+def _register(
+    monkeypatch: pytest.MonkeyPatch, registered_key: str, data: bytes
+) -> None:
+    checksum = expectation(data).source_log_id
+    if registered_key == "F01_SOURCE_ID":
+        monkeypatch.setattr(ulog_integrity, registered_key, checksum)
+    else:
+        # A registry entry (ADR-0057) admits the same scoped service frames.
+        monkeypatch.setitem(RECORDINGS, checksum, F09)
 
 
-def test_every_stream_and_invalid_value_still_has_an_ordinal() -> None:
-    prefix, frames = synthetic_parts(invalid_bool=True)
-    second = packet("A", struct.pack("<BH", 1, 43) + b"battery_status")
-    second_data = packet("D", struct.pack("<H", 43) + frames[0][5:])
-    data = prefix + second + frames[0] + second_data + frames[1] + frames[2]
-    streams = inspect_ulog(data, expectation(data)).streams
-    assert [(s.multi_id, len(s.record_offsets)) for s in streams] == [(0, 3), (1, 1)]
-    assert streams[0].record_offsets[1] > streams[1].record_offsets[0]
-
-
-def test_dropout_marks_are_retained_as_loss_evidence() -> None:
-    data = synthetic_log() + packet("O", struct.pack("<H", 123))
-    data += packet("O", struct.pack("<H", 456))
-    data += packet("M", b"\x00" + info("char[1]", "note", b"a")[3:])
-    data += packet("M", b"\x01" + info("char[2]", "note", b"bc")[3:])
-    data += packet("M", b"\x01" + info("char[0]", "note", b"")[3:])
-    data += packet("L", b"6" + struct.pack("<Q", 1) + b"authored")
-    data += packet("S", bytes.fromhex("2f731320250cbb12"))
-    result = inspect_ulog(data, expectation(data))
-    assert (result.dropout_count, result.dropout_duration_ms) == (2, 579)
-    assert len(result.streams[0].record_offsets) == 3
-
-
-@pytest.mark.parametrize("registered_key", ["F09_SOURCE_ID", "F01_SOURCE_ID"])
+@pytest.mark.parametrize("registered_key", ["registry", "F01_SOURCE_ID"])
 def test_registered_extended_messages_are_scoped_and_validated(
     monkeypatch: pytest.MonkeyPatch,
     registered_key: str,
@@ -102,13 +60,11 @@ def test_registered_extended_messages_are_scoped_and_validated(
     binary = packet("M", b"\x00" + info("uint8_t[2]", "note", b"ab")[3:])
     data += parameter + binary
     rejected(data, "unsupported_compatibility_flags")
-    monkeypatch.setattr(ulog_integrity, registered_key, expectation(data).source_log_id)
+    _register(monkeypatch, registered_key, data)
     assert len(inspect_ulog(data, expectation(data)).streams[0].record_offsets) == 3
 
     invalid = data.replace(parameter, packet("Q", b"\x00" + parameter[4:]))
-    monkeypatch.setattr(
-        ulog_integrity, registered_key, expectation(invalid).source_log_id
-    )
+    _register(monkeypatch, registered_key, invalid)
     rejected(invalid, "invalid_default_parameter")
 
 

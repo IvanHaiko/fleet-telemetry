@@ -1,4 +1,6 @@
-"""Live PX4 SITL gateway: durable raw capture, then Kafka publication (ADR-0054).
+"""Live MAVLink gateway: durable raw capture, then Kafka publication.
+
+ADR-0054 for one PX4 SITL source; ADR-0060 for a fleet of declared vehicles.
 
 Each start is a new gateway epoch. Every packet from the configured system and
 component is appended to the epoch's capture file and fsynced before anything
@@ -19,6 +21,7 @@ import secrets
 import signal
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -32,8 +35,22 @@ from telemetry.conversion_contract import (
     object_value,
     string_value,
 )
-from telemetry.live_event import MESSAGES, event_bytes, event_key, make_event
-from telemetry.live_runtime import Document, session_config
+from telemetry.fleet_runtime import (
+    FLEET_PROFILE,
+    MAX_VEHICLES,
+    runtime_session,
+)
+from telemetry.live_event import (
+    MESSAGES,
+    event_bytes,
+    event_key,
+    make_event,
+    replay_scope,
+)
+from telemetry.live_runtime import (
+    Document,
+)
+from telemetry.local_io import read_bounded
 
 MAX_GATEWAY_SECONDS = 3600
 
@@ -69,47 +86,115 @@ def header(raw: bytes) -> tuple[int, int, int] | None:
     return None
 
 
+@dataclass
+class Vehicle:
+    """Receive state of one declared system; one refusal stops only it."""
+
+    source: Document
+    last_seq: int | None = None
+    sequence_gaps: int = 0
+    lost_packets: int = 0
+    last_receipt_ms: int | None = None
+    last_heartbeat_ms: int | None = None
+    last_position: tuple[int, bytes] | None = None
+    refusal: str | None = None
+    published: int = 0
+
+    def summary(self) -> Document:
+        source = self.source
+        return {
+            "label": source.get("label", source["vehicle"]),
+            "kind": source["kind"],
+            "system": source["system"],
+            "last_receipt_ms": self.last_receipt_ms,
+            "last_heartbeat_ms": self.last_heartbeat_ms,
+            "published": self.published,
+            "refusal": self.refusal,
+            "sequence_gaps": self.sequence_gaps,
+            "lost_packets": self.lost_packets,
+        }
+
+
+def declarations(folder: Path) -> list[Document]:
+    """Replay declarations the players wrote (ADR-0060), validated."""
+    if not folder.is_dir():
+        return []
+    return [
+        replay_scope(json_object(read_bounded(path, 8192)))
+        for path in sorted(folder.glob("*.declaration.json"))[:MAX_VEHICLES]
+    ]
+
+
 class Gateway:
     """One epoch of capture and publication; caller owns the receive loop."""
 
     def __init__(self, config: Document, root: Path) -> None:
         self.config, self.root = config, root
-        self.session = session_config(object_value(config["session"]))
+        session = object_value(config["session"])
+        self.fleet = session.get("profile") == FLEET_PROFILE
+        self.session = runtime_session(session)
         self.run_id = string_value(self.session["run_id"])
-        self.source = object_value(self.session["source"])
+        self.vehicles: dict[tuple[int, int], Vehicle] = {}
+        if not self.fleet:
+            self._declare(object_value(self.session["source"]))
         self.limit = integer_value(config["max_deliveries"])
         self.epoch = secrets.token_hex(16)
         self.sequence = 0
         self.published = 0
-        self.last_receipt_ms: int | None = None
-        self.last_heartbeat_ms: int | None = None
-        self.last_position: tuple[int, bytes] | None = None
-        self.refusal: str | None = None
-        # MAVLink's 8-bit packet sequence makes receive loss detectable.
-        self.last_seq: int | None = None
-        self.sequence_gaps = 0
-        self.lost_packets = 0
         self.foreign = self.bad_data = 0
         self.pending: list[bytes] = []
         self.capture = (root / f"capture-{self.epoch}.jsonl").open("xb")
         self.ledger = (root / f"gateway-acks-{self.epoch}.jsonl").open("xb")
+        self.refresh()
+
+    def _declare(self, source: Document) -> None:
+        address = (integer_value(source["system"]), integer_value(source["component"]))
+        known = self.vehicles.get(address)
+        if known is not None:
+            require(known.source == source, "live_gateway_declaration_changed")
+            return
+        names = {v.source["vehicle"] for v in self.vehicles.values()}
+        require(source["vehicle"] not in names, "live_gateway_vehicle_repeated")
+        self.vehicles[address] = Vehicle(source)
+
+    def refresh(self) -> None:
+        """Admit vehicles declared since the last look; never forget one."""
+        if self.fleet:
+            for source in declarations(self.root / "players"):
+                self._declare(source)
+
+    def _latest(self, name: str) -> int | None:
+        known = [
+            value
+            for value in (getattr(v, name) for v in self.vehicles.values())
+            if value is not None
+        ]
+        return max(known) if known else None
 
     def status(self, state: str) -> None:
+        refusals = [v.refusal for v in self.vehicles.values() if v.refusal]
+        refusal = None
+        if refusals:
+            refusal = "vehicle_refused" if self.fleet else refusals[0]
         durable_cursor(
             self.root / "gateway-status.json",
             {
                 "epoch": self.epoch,
                 "status": state,
                 "written_ms": time.time_ns() // 1_000_000,
-                "last_receipt_ms": self.last_receipt_ms,
-                "last_heartbeat_ms": self.last_heartbeat_ms,
+                "last_receipt_ms": self._latest("last_receipt_ms"),
+                "last_heartbeat_ms": self._latest("last_heartbeat_ms"),
                 "published": self.published,
                 "captured": self.sequence,
-                "refusal": self.refusal,
-                "sequence_gaps": self.sequence_gaps,
-                "lost_packets": self.lost_packets,
+                "refusal": refusal,
+                "sequence_gaps": sum(v.sequence_gaps for v in self.vehicles.values()),
+                "lost_packets": sum(v.lost_packets for v in self.vehicles.values()),
                 "foreign_packets": self.foreign,
                 "bad_data": self.bad_data,
+                "vehicles": {
+                    string_value(v.source["vehicle"]): v.summary()
+                    for v in self.vehicles.values()
+                },
             },
         )
 
@@ -118,8 +203,7 @@ class Gateway:
 
         The caller persists the staged records before publishing any event.
         """
-        # Every parsed packet is captured: all IDs sent over this channel share
-        # its packet sequence. Only the configured system and component are
+        # Every parsed packet is captured. Only declared systems are
         # published; IDs are filters, not proof of the producer.
         raw = bytes(message.get_msgbuf())
         seq, system, component = header(raw) or (
@@ -127,37 +211,24 @@ class Gateway:
             message.get_srcSystem(),
             message.get_srcComponent(),
         )
-        own = (system, component) == (self.source["system"], self.source["component"])
-        self.foreign += not own
+        vehicle = self.vehicles.get((system, component))
+        if vehicle is None and self.fleet:
+            self.refresh()
+            vehicle = self.vehicles.get((system, component))
+        self.foreign += vehicle is None
         kind = message.get_type()
-        if own and self.last_seq is not None and seq != (self.last_seq + 1) % 256:
-            self.sequence_gaps += 1
-            self.lost_packets += (seq - self.last_seq - 1) % 256
-        if own:
-            self.last_seq = seq
         sequence = self.sequence
         self.sequence += 1
-        if own:
-            self.last_receipt_ms = received_ms
         event: Document | None = None
-        if own and kind in MESSAGES and self.refusal is None:
-            data = {k: v for k, v in message.to_dict().items() if k != "mavpackettype"}
-            try:
-                event = make_event(
-                    self.run_id,
-                    self.source,
-                    kind,
-                    data,
-                    self.epoch,
-                    sequence,
-                    received_ms,
-                )
-            except ValueError as error:
-                self.refusal = str(error)
-            if event is not None and kind == "GLOBAL_POSITION_INT":
-                event = self._position(event)
-            if kind == "HEARTBEAT" and event is not None:
-                self.last_heartbeat_ms = received_ms
+        if vehicle is not None:
+            # MAVLink's 8-bit packet sequence is per sender: loss is per vehicle.
+            last = vehicle.last_seq
+            if last is not None and seq != (last + 1) % 256:
+                vehicle.sequence_gaps += 1
+                vehicle.lost_packets += (seq - last - 1) % 256
+            vehicle.last_seq = seq
+            vehicle.last_receipt_ms = received_ms
+            event = self._event(vehicle, kind, message, sequence, received_ms)
         record = {
             "sequence": sequence,
             "received_unix_ms": received_ms,
@@ -171,6 +242,38 @@ class Gateway:
         self.pending.append(json_line(record))
         return None if event is None else event_bytes(event)
 
+    def _event(
+        self,
+        vehicle: Vehicle,
+        kind: str,
+        message: Message,
+        sequence: int,
+        received_ms: int,
+    ) -> Document | None:
+        if kind not in MESSAGES or vehicle.refusal is not None:
+            return None
+        data = {k: v for k, v in message.to_dict().items() if k != "mavpackettype"}
+        try:
+            event: Document | None = make_event(
+                self.run_id,
+                vehicle.source,
+                kind,
+                data,
+                self.epoch,
+                sequence,
+                received_ms,
+            )
+        except ValueError as error:
+            vehicle.refusal = str(error)
+            return None
+        if event is not None and kind == "GLOBAL_POSITION_INT":
+            event = self._position(vehicle, event)
+        if event is not None:
+            if kind == "HEARTBEAT":
+                vehicle.last_heartbeat_ms = received_ms
+            vehicle.published += 1
+        return event
+
     def persist(self) -> None:
         """Durably append every staged capture record with one fsync."""
         if self.pending:
@@ -179,20 +282,21 @@ class Gateway:
             os.fsync(self.capture.fileno())
             self.pending.clear()
 
-    def _position(self, event: Document) -> Document | None:
+    @staticmethod
+    def _position(vehicle: Vehicle, event: Document) -> Document | None:
         """ADR-0045 rules: a boot-time decrease or competing content refuses."""
         boot = integer_value(event["native_time_boot_ms"])
         native = json_line(event["native"])
-        if self.last_position is not None:
-            last_boot, last_native = self.last_position
+        if vehicle.last_position is not None:
+            last_boot, last_native = vehicle.last_position
             if boot < last_boot:
-                self.refusal = "source_clock_reset_requires_new_boot_session"
+                vehicle.refusal = "source_clock_reset_requires_new_boot_session"
                 return None
             if boot == last_boot:
                 if native != last_native:
-                    self.refusal = "competing_position_at_source_time"
+                    vehicle.refusal = "competing_position_at_source_time"
                 return None  # a repeated position renews nothing
-        self.last_position = (boot, native)
+        vehicle.last_position = (boot, native)
         return event
 
     def acknowledged(self, first: int, wires: list[bytes]) -> None:
@@ -309,6 +413,7 @@ def run(config: Document, root: Path) -> str:
             else:
                 time.sleep(0.005)
             if time.monotonic() - last_status >= 0.5:
+                gateway.refresh()
                 gateway.status("running")
                 last_status = time.monotonic()
         if flags["complete"]:

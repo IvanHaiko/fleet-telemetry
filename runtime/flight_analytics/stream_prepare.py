@@ -1,4 +1,4 @@
-"""Reuse protected F09 preparation as a bounded, deterministic offline stream.
+"""Reuse protected recording preparation as a bounded, deterministic offline stream.
 
 Source payloads keep their original ordinals. Exact duplicate input rows collapse
 before ordering checks; conflicting identities and non-increasing per-stream
@@ -41,9 +41,11 @@ from runtime.flight_analytics.stream_contract import (
     _scope,
     _validate_context,
     _validate_inventory,
+    limitations,
     timeline,
 )
 from runtime.flight_analytics.stream_source import _verify_prepared
+from telemetry.admission import admit_original
 from telemetry.conversion_contract import (
     integer_value,
     json_line,
@@ -60,7 +62,7 @@ from telemetry.recording_stream import (
     read_event,
     validate_battery_gaps,
 )
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import recording, resolve
 
 __all__ = [
     "_CONTEXT_KEYS",
@@ -111,6 +113,8 @@ def prepare(
     _integer(max_events, 1, MAX_EVENTS)
     _integer(max_bytes, 1, MAX_BYTES)
     gps, battery, states, count, gaps, inventory = _verify_prepared(prepared, source)
+    source_ref = object_value(inventory["source.ulog"])
+    registered = recording("sha256:" + string_value(source_ref["sha256"]))
     events, context = timeline(
         gps,
         battery,
@@ -121,6 +125,7 @@ def prepare(
         battery_source_count=count,
         state_gaps=gaps,
         max_events=max_events,
+        registered=registered,
     )
     lines = []
     size = 0
@@ -133,8 +138,8 @@ def prepare(
     event_body = b"".join(lines)
     context_body = json_line(context)
     manifest: Document = {
-        "profile": BUNDLE_PROFILE,
-        "source_id": F09_SOURCE_ID,
+        "profile": registered.name("recording-stream-bundle-v1"),
+        "source_id": registered.source_id,
         "run_id": run_id,
         "start_us": start_us,
         "end_us": end_us,
@@ -149,7 +154,7 @@ def prepare(
             "context.json": _reference(context_body),
         },
         "input_artifacts": inventory,
-        "limitations": list(LIMITATIONS),
+        "limitations": limitations(registered),
     }
     manifest_body = json_line(manifest)
     if len(event_body) + len(context_body) + len(manifest_body) > max_bytes:
@@ -182,12 +187,21 @@ def load_bundle(directory: Path) -> tuple[list[Document], Document, Document]:
     run, start, end = _scope(
         manifest["run_id"], manifest["start_us"], manifest["end_us"]
     )
-    if manifest["profile"] != BUNDLE_PROFILE or manifest["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = resolve(
+            manifest["source_id"], manifest["profile"], "recording-stream-bundle-v1"
+        )
+    except ValueError:
+        raise ValueError("stream_bundle_profile") from None
+    if manifest["profile"] != registered.name("recording-stream-bundle-v1"):
         raise ValueError("stream_bundle_profile")
     count = _integer(manifest["events"], 1, MAX_EVENTS)
     _integer(manifest["predecessor_count"], 0, 3)
     _limitations(manifest["limitations"])
     _validate_inventory(manifest["input_artifacts"])
+    original = object_value(object_value(manifest["input_artifacts"])["source.ulog"])
+    if "sha256:" + string_value(original["sha256"]) != registered.source_id:
+        raise ValueError("stream_original_reference")
     files = object_value(manifest["files"])
     require_keys(files, {"events.jsonl", "context.json"})
     event_body = _read(root / "events.jsonl", MAX_BYTES - len(manifest_body))
@@ -217,6 +231,7 @@ def load_bundle(directory: Path) -> tuple[list[Document], Document, Document]:
         order = event_order(event)
         if (
             event["run_id"] != run
+            or event["source_id"] != registered.source_id
             or not start <= integer_value(event["native_timestamp_us"]) < end
             or identity in seen
             or (previous is not None and order <= previous)
@@ -289,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-bytes", type=int, default=MAX_BYTES)
     args = parser.parse_args(argv, namespace=_Arguments())
     try:
+        # An unregistered original must be admitted in this process first
+        # (ADR-0058); a registered one returns at once after its checksum.
+        admit_original(args.source)
         report = prepare(
             args.prepared,
             args.source,

@@ -54,6 +54,30 @@ fact only as recomputed from the archived input, because no prepared reference
 exists. Battery and state are associated by receipt order, never by
 measurement time.
 
+*Update 2026-11-16, operations:* one command, `runtime/recording/ops.py`,
+starts, inspects, preserves, stops and restores a run of either source
+([ADR-0055](adr/0055-recording-operations-and-restoration.md)). It reads Docker,
+the Flink REST API, Grafana's health endpoint and a read-only probe in the
+archive namespace; it adds no service. After a whole-profile stop the job is
+resubmitted from the newest retained checkpoint, the workers continue from
+their cursors, the F09 publisher continues from its ledger and the live
+gateway opens a new epoch.
+
+*Update 2026-11-16, run health:* monitoring signals are computed from what the
+components already write or answer, each with a declared threshold and a state
+`ok`/`warn`/`fail`/`unknown`, and shown by `ops status` and saved by `collect`
+([ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md)): source
+admission and rejection counts, the Flink operator's disposition counters,
+physical against logical SQL rows, archive and serving coverage, checkpoints
+and restarts, broker partitions and consumer-group lag, container memory and
+CPU against their compose limits, and free disk against a measured run
+footprint. Twelve to thirteen data-quality rules from the data contracts run
+as one SQL scan, both in `ops` and in a *Run health* dashboard panel. No
+monitoring service is added; Kafka broker metrics stay `unknown`, and nothing
+alerts between two `ops` invocations. `ops view` serves a stored run's
+dashboard from storage, SQL and Grafana alone. ClickHouse in the recording profile keeps
+no system logs except a 3-day `query_log` and crash reports.
+
 ```mermaid
 sequenceDiagram
     participant K as Kafka input
@@ -149,7 +173,7 @@ Preserve complete ULogs and reusable run evidence even when only three telemetry
 families enter the MVP online path. Keep unprocessed streams as source bytes with
 schema/provenance rather than inventing interpretations or streaming all fields
 without a consumer. [Retention policy](deployment-and-terraform.md#run-evidence-and-retention-policy-2026-11-10)
-defines budgets, preservation status and cleanup boundaries; [roadmap criteria](roadmap.md#integrated-mvp-priority-2026-11-10)
+defines budgets, preservation status and cleanup boundaries; [roadmap criteria](roadmap-history.md#integrated-mvp-priority-2026-11-10)
 define when this target is achieved. Later platform work can add reviewed stream
 types, analytics, longer operation, stronger failure domains and optional cloud
 deployment without changing retained measurement identity or rewriting history.
@@ -207,7 +231,7 @@ without inserts and conflicts/partial scopes refuse. Admissions are locally
 serialized, not transactionally isolated. F01 uses commander observations with
 empty GPS/missing battery; existing F09 identities and tables stay intact.
 
-The [active product goal](roadmap.md#active-product-goal-2026-11-04) now prioritizes
+The [active product goal](roadmap-history.md#active-product-goal-2026-11-04) now prioritizes
 supported source connection and state inspection. The first
 [recording command](guides/recording-connection.md) composes the existing F09 adapters
 and native-time association rules into local artifacts. Its combined Grafana
@@ -839,6 +863,12 @@ adoption remains gated by producer, full firmware-definition and rights evidence
 | Single-machine F09 recording profile | Proposed; complete flight demonstrated locally on 2026-11-13 | [ADR-0052](adr/0052-single-machine-recording-profile.md) adds one plaintext private broker with 12 partitions, loopback storage through a shared network namespace, and a hash-pinned worker image; 21,054 facts reconcile by content hash in two complete runs; the Flink association operator falls behind 1x and checkpoint restore remains open |
 | Recording recovery boundaries | Accepted 2026-11-16 on a post-hoc evaluation of the second complete-flight fault run; both runs failed the declared visibility limit | [ADR-0053](adr/0053-recording-recovery-boundaries.md) exercises TaskManager SIGKILL, resubmission from a retained checkpoint, a configured one-shot serving fault inside the SQL/cursor window, archive pause and an archive-only rebuild from one predeclared orchestrator; all correctness checks pass on the complete flight; serving start-up and an early-closing recovery window exceeded the 15 s visibility limit; the maintainer accepted the second run's post-hoc evaluation with the strict measure, which passes; broker, JobManager and host failures are not verified |
 | Live PX4 SITL source on the recording profile | Accepted 2026-11-16; run `live-s4-full-20261116-02` passed its predeclared criterion | [ADR-0054](adr/0054-live-sitl-recording-profile.md) adds a capture gateway, the `px4-live-event-v1` contract, a receipt-ordered Flink lane, an archive-recomputation serving gate and a `live_state` view; one boot session and one vehicle; unsigned MAVLink, physical vehicles and RF links are not covered |
+| Recording operations and restoration | Accepted 2026-11-16; one evidence run per source passed its predeclared criterion | [ADR-0055](adr/0055-recording-operations-and-restoration.md) adds one operations command with readiness over two snapshots, evidence collection before history is lost, and resubmission from the newest retained checkpoint after a whole-profile stop |
+| Run health and data quality without a monitoring stack | Proposed 2026-11-16; the complete F09 final run passed every condition but its disk budget | [ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md) derives every monitoring signal from existing component outputs with a declared threshold and state, runs contract-based SQL quality checks in `ops` and a *Run health* panel, and fixes three dashboard defects found in the browser; no Prometheus, exporter or data-quality framework is added |
+| Registered recordings in the integrated path | Proposed 2026-11-17; F09 regenerated byte-identical offline, F07/F03 replays recorded in the ADR | [ADR-0057](adr/0057-registered-recordings-in-the-integrated-path.md) replaces the F09 constants with one exact-file registration table (checksum, firmware, definition digests, counts, pseudonym, GPS layout, frame limit) and admits F07 and F03; names derive from the registration key, so F09 identities are unchanged; arbitrary logs stay refused |
+| Admission by mapping profile; offline inventory of any ULog | Proposed 2026-11-17; F09 regenerated byte-identical, a derived F09 copy and two unprocessed Flight Review logs admitted offline | [ADR-0058](adr/0058-admission-by-mapping-profile.md) inventories any structurally valid ULog without services under a published structural policy, and admits an unregistered file when its selected layout digests and reported firmware match a reviewed mapping profile; names derive from the profile key, identity from the file checksum; anything else stays inspectable with a reason per unavailable part |
+| Explaining why a value stopped updating | Proposed 2026-11-17 | [ADR-0059](adr/0059-explaining-stalled-values.md) shows source, input, archive and query-visible progress side by side with one explanation (serving behind, archive behind, replay paused or ended, source silent, completed, unknown) in `ops status`, `health.json` and a dashboard panel; the publisher gains explicit paused and ended states with its position; no alerting service |
+| Recorded flights as virtual vehicles over MAVLink | Proposed 2026-11-17. F09 and F03 exercised independent pause and resume. A second session reconciled four randomly selected files. | [ADR-0060](adr/0060-recorded-flights-as-virtual-vehicles.md) defines the replay player, per-vehicle declaration, file-based measurement identity, association and dashboard. The declaration identifies the replay mapping used by processing and archive reconstruction. |
 | Local S3-compatible distribution/client and conditional-write compatibility | M4 storage startup | [ADR-0024](adr/0024-m4-storage-compatibility.md) accepts the bounded pinned SeaweedFS/SDK foundation after live race/readback/permission checks, reviewed test supersessions and deterministic acceptance; checkpoint S3-plugin adoption stays separate |
 | Windows UUID native conversion | Any Windows Kafka publication | [ADR-0025](adr/0025-windows-kafka-uuid-repair.md) accepts the exact local SDK repair and observed full-width guard; earlier Windows identities still require audit |
 | Historical Windows topic identity trust | Reuse of pre-repair receipts | [ADR-0026](adr/0026-historical-topic-identity-qualification.md) qualifies 59 narrowed identities; independent attestations/migration remain required |

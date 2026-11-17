@@ -118,7 +118,7 @@ def create_sql(
     database: str,
     grafana_password: str,
     schema: type[RecordingSQL] = RecordingSQL,
-    tables: tuple[str, ...] = ("facts", "progress"),
+    tables: tuple[str, ...] = ("facts", "progress", "source_progress"),
 ) -> Document:
     """Fresh database, INSERT-only writer, readonly reader and Grafana grants."""
     require(
@@ -173,25 +173,37 @@ def create_sql(
         b"",
         write=True,
     )
-    # One Grafana identity across runs; each run grants it only its database.
+    grafana_identity(bootstrap, database, grafana_password)
+    return roles
+
+
+def grafana_identity(bootstrap: HttpConfig, database: str, password: str) -> None:
+    """Point the one Grafana identity at this run: its password and its database.
+
+    The identity is shared by every run on the serving volume, while each run's
+    datasource carries the run's own generated password. `CREATE USER IF NOT
+    EXISTS` alone kept the first run's password, so every later datasource was
+    refused; the password therefore follows the run being served. Earlier
+    runs' grants stay; their dashboards need `ops view` to re-key the identity.
+    """
+    require(all(c in "0123456789abcdef" for c in password), "recording_sql_password")
     _request(
         bootstrap,
         f"CREATE USER IF NOT EXISTS {GRAFANA_USER} "
-        f"IDENTIFIED WITH sha256_password BY '{grafana_password}'",
+        f"IDENTIFIED WITH sha256_password BY '{password}'",
         b"",
         write=True,
     )
     _request(
         bootstrap,
-        f"ALTER USER {GRAFANA_USER} SETTINGS "
-        + settings_clause(GRAFANA_SETTINGS, grafana=True),
+        f"ALTER USER {GRAFANA_USER} IDENTIFIED WITH sha256_password BY '{password}' "
+        "SETTINGS " + settings_clause(GRAFANA_SETTINGS, grafana=True),
         b"",
         write=True,
     )
     _request(
         bootstrap, f"GRANT SELECT ON {database}.* TO {GRAFANA_USER}", b"", write=True
     )
-    return roles
 
 
 def create_bucket(bucket: str, keys: Document) -> None:

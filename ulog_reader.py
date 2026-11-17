@@ -17,7 +17,6 @@ from typing import Protocol, cast
 
 from fleet_telemetry import ULOG_FIRMWARE, ULogSourceManifest
 from ulog_integrity import (
-    F09_SOURCE_ID,
     InputIntegrityError,
     ULogExpectation,
     ULogInspection,
@@ -119,11 +118,10 @@ def _validate_profile(inspection: ULogInspection, manifest: ULogSourceManifest) 
         raise InputIntegrityError("missing_producer_attestation", None)
     if manifest.source_type not in ("synthetic", "ulog"):
         raise InputIntegrityError("unsupported_source_type", None)
-    from telemetry.models import F09_FIRMWARE
+    from telemetry.recordings import lookup
 
-    expected_firmware = (
-        F09_FIRMWARE if manifest.source_log_id == F09_SOURCE_ID else ULOG_FIRMWARE
-    )
+    registered = lookup(manifest.source_log_id)
+    expected_firmware = ULOG_FIRMWARE if registered is None else registered.firmware
     if manifest.firmware_commit != expected_firmware:
         raise InputIntegrityError("unsupported_firmware", None)
     if (

@@ -17,6 +17,12 @@ import time
 from typing import cast
 
 from runtime.clickhouse.transport import HttpConfig, _request
+from runtime.continuous.recording_sql_schema import (
+    _COLUMNS,
+    _GPS_FIELDS,
+    _GROUPS,
+    _SCOPE,
+)
 from telemetry.conversion_contract import (
     json_line,
     json_object,
@@ -25,7 +31,7 @@ from telemetry.conversion_contract import (
 )
 from telemetry.recording_output import MAX_EVENTS
 from telemetry.recording_stream import event_bytes, make_event
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import resolve
 
 type Document = dict[str, object]
 
@@ -35,40 +41,25 @@ _MAX_OUTPUT_BYTES = 65_536
 _MAX_BODY_BYTES = 8 * 1024 * 1024
 _MAX_ROWS = 4096
 _STATUSES = {"recorded_replay", "running", "paused", "completed", "stopped", "failed"}
-_GPS_FIELDS = ("latitude_deg", "longitude_deg", "altitude_msl_m", "ground_speed_m_s")
-_GROUPS = {
-    "battery": ("voltage_v", "current_a", "remaining_fraction"),
-    "land": ("landed", "ground_contact", "maybe_landed"),
-    "vehicle_status": ("arming_state", "nav_state", "failsafe"),
+# runtime/recording/stall.py explains from outside the profile; these are the
+# serving worker's own view, written with every progress row.
+_EXPLANATIONS = {
+    "advancing",
+    "completed",
+    "serving_behind",
+    "archive_behind",
+    "replay_paused",
+    "replay_ended",
+    "unknown",
 }
-_SCOPE = (
-    "source_cluster_id",
-    "source_topic_id",
-    "source_topic",
-    "source_partition",
-    "context_sha256",
-    "run_id",
-)
-_COLUMNS = {
-    "event_id": "String",
-    "input_offset": "UInt64",
-    "native_timestamp_us": "UInt64",
-    "native_seconds": "Float64",
-    **{name: "Nullable(Float64)" for name in _GPS_FIELDS},
-    **{group + "_status": "String" for group in _GROUPS},
-    **{group + "_age_us": "Nullable(UInt64)" for group in _GROUPS},
-    **{group + "_event_id": "Nullable(String)" for group in _GROUPS},
-    **{name: "Nullable(Float64)" for name in _GROUPS["battery"]},
-    **{name: "Nullable(UInt8)" for name in _GROUPS["land"] + _GROUPS["vehicle_status"]},
-    "source_cluster_id": "String",
-    "source_topic_id": "String",
-    "source_topic": "String",
-    "source_partition": "UInt8",
-    "context_sha256": "String",
-    "run_id": "String",
-    "output_json": "String",
-    "fact_json": "String",
-    "inspection_json": "String",
+_SOURCE_PROGRESS = {
+    "explanation",
+    "source_status",
+    "acknowledged",
+    "declared",
+    "position_native_us",
+    "archive_next",
+    "serving_taken",
 }
 _READ_SETTINGS = {
     "readonly": "1",
@@ -211,14 +202,18 @@ def _project(output: Document) -> Document:
             "inspection",
         },
     )
-    if fact["profile"] != "f09-recording-fact-v1" or fact["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = resolve(fact["source_id"], fact["profile"], "recording-fact-v1")
+    except ValueError:
+        raise ValueError("recording_sql_fact_profile") from None
+    if fact["profile"] != registered.name("recording-fact-v1"):
         raise ValueError("recording_sql_fact_profile")
     run = _text(fact["run_id"], r"[A-Za-z0-9._-]{1,128}")
     stamp = _integer(fact["native_timestamp_us"], 2**64)
     inspection = object_value(fact["inspection"])
     require_keys(inspection, {"gps", "battery", "states"})
     gps = object_value(inspection["gps"])
-    event = make_event("vehicle_gps_position:0", gps, run)
+    event = make_event("vehicle_gps_position:0", gps, run, registered.source_id)
     if (
         fact["measurement_id"] != event["measurement_id"]
         or stamp != event["native_timestamp_us"]
@@ -308,6 +303,14 @@ class RecordingSQL:
             f"CREATE TABLE {self.database}.progress ("
             "written_ms Int64, status String, input_next UInt64, "
             "output_count UInt64, expected UInt64) "
+            "ENGINE=MergeTree ORDER BY written_ms"
+        )
+        # Why values stopped updating, as the serving worker sees it (ADR-0059).
+        self._execute(
+            f"CREATE TABLE {self.database}.source_progress ("
+            "written_ms Int64, explanation String, source_status String, "
+            "acknowledged Int64, declared Int64, position_native_us Nullable(Int64), "
+            "archive_next Nullable(Int64), serving_taken Int64) "
             "ENGINE=MergeTree ORDER BY written_ms"
         )
         self._execute(
@@ -442,6 +445,16 @@ class RecordingSQL:
             if len(rows) < _MAX_ROWS:
                 return result
         raise ValueError("recording_sql_identity_bound")
+
+    def source_progress(self, row: Document) -> None:
+        """One explanation row; counts and native time only, never values."""
+        if set(row) != _SOURCE_PROGRESS or row["explanation"] not in _EXPLANATIONS:
+            raise ValueError("recording_sql_source_progress")
+        self._execute(
+            f"INSERT INTO {self.database}.source_progress SETTINGS async_insert=0 "
+            "FORMAT JSONEachRow",
+            json_line({**row, "written_ms": time.time_ns() // 1_000_000}),
+        )
 
     def progress(
         self, status: str, input_next: int, output_count: int, expected: int

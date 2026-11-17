@@ -33,7 +33,6 @@ from telemetry.recording_output import (
     read_output,
 )
 from telemetry.recording_processing import (
-    FACT_PROFILE,
     MAX_AGE_US,
     _association,
     _context,
@@ -45,7 +44,6 @@ from telemetry.recording_stream import (
     event_order,
     validate_event,
 )
-from ulog_integrity import F09_SOURCE_ID
 
 __all__ = [
     "_STATE_FIELDS",
@@ -195,6 +193,7 @@ class RecordingRuntime:
         stamp = integer_value(row["native_timestamp_us"])
         if (
             row["run_id"] != self._selected.run_id
+            or row["source_id"] != self._selected.recording.source_id
             or not self._selected.start_us <= stamp < self._selected.end_us
         ):
             raise ValueError("processing_event_scope")
@@ -219,8 +218,8 @@ class RecordingRuntime:
             return None
         self._gps_count += 1
         return {
-            "profile": FACT_PROFILE,
-            "source_id": F09_SOURCE_ID,
+            "profile": self._selected.recording.name("recording-fact-v1"),
+            "source_id": self._selected.recording.source_id,
             "run_id": self._selected.run_id,
             "measurement_id": identity,
             "native_timestamp_us": stamp,

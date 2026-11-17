@@ -185,6 +185,8 @@ services:
     volumes:
       - serving-data:/var/lib/clickhouse
       - {type: bind, source: ../runtime/clickhouse/limits.xml, target: /etc/clickhouse-server/config.d/limits.xml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/clickhouse-concurrency.xml, target: /etc/clickhouse-server/config.d/recording-concurrency.xml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/clickhouse-system-logs.xml, target: /etc/clickhouse-server/config.d/recording-system-logs.xml, read_only: true, bind: {create_host_path: false}}
     tmpfs:
       - /var/log/clickhouse-server:rw,noexec,nosuid,size=32m,uid=101,gid=101
       - /etc/clickhouse-server/users.d:rw,noexec,nosuid,size=1m,uid=101,gid=101
@@ -218,7 +220,8 @@ services:
       - {type: bind, source: "${RECORDING_GRAFANA_PLUGIN:?Run runtime/recording/prepare.py first}", target: /var/lib/grafana/plugins/grafana-clickhouse-datasource, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: ../runtime/recording/grafana/datasources.yml, target: /etc/grafana/provisioning/datasources/recording.yml, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: ../runtime/recording/grafana/dashboards.yml, target: /etc/grafana/provisioning/dashboards/recording.yml, read_only: true, bind: {create_host_path: false}}
-      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/dashboards", target: /var/lib/grafana/dashboards, read_only: true, bind: {create_host_path: false}}
+      # `ops view` points this at current templates rendered for a stored run.
+      - {type: bind, source: "${RECORDING_DASHBOARDS:-${RECORDING_PRIVATE:?Run runtime/recording/prepare.py first}/dashboards}", target: /var/lib/grafana/dashboards, read_only: true, bind: {create_host_path: false}}
     mem_limit: 768m
     cpus: 1
     pids_limit: 256
@@ -271,6 +274,21 @@ services:
     <<: *worker
     profiles: [live]
     command: [runtime.continuous.live_worker, serve, --config, "/evidence/${RECORDING_RUN_ID:?Run runtime/recording/live_prepare.py first}/config/serve.json"]
+
+  # One recorded flight as a virtual PX4 (ADR-0060); `fleet` starts one per
+  # file with the file's folder mounted read-only at /input. It shares the
+  # archive namespace, so MAVLink reaches the gateway on loopback.
+  replay-player:
+    <<: *worker
+    profiles: [fleet]
+    environment:
+      PYTHONPATH: /workspace:/deps
+    volumes:
+      - evidence:/evidence
+      - {type: bind, source: .., target: /workspace, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_PRIVATE:?Run runtime/recording/live_prepare.py first}", target: /private, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${RECORDING_LIVE_PACKAGES:-/nonexistent}", target: /deps, read_only: true, bind: {create_host_path: false}}
+    mem_limit: 512m
 
   px4-sitl:
     image: px4io/px4-sitl@sha256:39d5a950208a5a45fccbbb0670bd8716663ed0b350ef738447581395e0c92d97

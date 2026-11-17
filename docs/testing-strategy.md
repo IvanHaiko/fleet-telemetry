@@ -1,5 +1,29 @@
 # Testing strategy and evidence
 
+## Recording operations and restoration, 2026-11-16
+
+[ADR-0055](adr/0055-recording-operations-and-restoration.md) adds three
+invariant tests and one drill:
+
+- `tests/test_recording_publish_resume.py`: across a stop, every declared F09
+  delivery lands exactly once at the Kafka offset equal to its index, including
+  a stop between the broker's acknowledgement and the ledger write. A broker
+  behind the ledger, a foreign record, a changed or torn ledger and a non-empty
+  topic at a fresh start refuse without publishing. It failed against the
+  unchanged publisher before the change;
+- `tests/test_recording_ops.py`: a run's volume inventory lists each of its
+  files with the hash of its bytes and nothing of another run, even one whose
+  ID starts with the same text; only checkpoints with `_metadata` are offered
+  for a restore, newest first; readiness leaves unmeasured values unknown and
+  fails stalled traffic.
+
+`runtime/recording/recovery_run.py` stops the whole profile mid-run, restores
+it with the runbook commands and requires exact reconciliation, a restore from
+the latest completed checkpoint, a fact acknowledged after the restart in SQL,
+a `partial` outage manifest and a `completed` stop manifest. Readiness,
+Flink, Kafka and Grafana behaviour are established by these runs, not by unit
+tests with simulated services.
+
 ## Single-machine starter checks, 2026-11-11
 
 The [local starter](local-development.md) has its own synthetic source-to-Kafka/
@@ -57,7 +81,7 @@ delivery/recovery, archive coverage and SQL/Grafana integration are untested her
 
 ## Integrated MVP evidence, 2026-11-10
 
-The [MVP criteria](roadmap.md#integrated-mvp-priority-2026-11-10) under
+The [MVP criteria](roadmap-history.md#integrated-mvp-priority-2026-11-10) under
 [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) require one
 source-to-query profile, not the union of unrelated component experiments.
 This section specifies required future evidence; no additional runtime check
@@ -314,7 +338,7 @@ Current delivery policy, 2026-10-26: prioritize a working source-to-query
 scenario, three useful queries and meaningful failure evidence. Verification
 should protect that result without becoming a separate platform project.
 See [the contributor guide](../CONTRIBUTING.md) and
-[the active plan](roadmap.md#active-continuation-and-proportional-delivery-2026-10-26).
+[the active plan](roadmap-history.md#active-continuation-and-proportional-delivery-2026-10-26).
 
 Small reversible changes normally use one session and relevant existing checks.
 Medium changes use a stated scope, implementation and focused validation.
@@ -1098,3 +1122,26 @@ panels. The same masks are reused in the ASOF check; no blind independence,
 physical synchronization or flight-phase validation is claimed.
 
 The real-flight evidence includes full source checksum/framing and selected-stream count, two deterministic preparations, every stored identity/hash and typed-field readback, SELECT-only refusal, signed plugin/connection checks, real Grafana SQL and headless marker-to-chart navigation with external browser requests blocked. It does not prove live-device, archive, Kafka/Flink, production recovery or multi-browser behavior.
+
+## Run health and dashboard rendering, 2026-11-16
+
+[ADR-0056](adr/0056-run-health-without-a-monitoring-stack.md) adds three
+invariants with focused tests (`tests/test_recording_health.py`):
+
+- **Unmeasured stays unknown.** With no observation, every monitoring signal
+  is `unknown`; a quality check over zero facts is `unknown`, never a pass.
+- **Thresholds give the declared state.** Archive lag, status age, memory
+  share and free disk at and across each boundary yield `ok`, `warn` or
+  `fail` as declared; a completed run with any archive lag fails.
+- **Each quality rule catches its violation.** The generated SQL runs in the
+  pinned ClickHouse image with `clickhouse local` over a tiny authored table
+  with one valid row and one row per rule that breaks exactly that rule; each
+  check counts exactly one violation, clean data passes, empty data is
+  unknown. The dashboards' *Run health* SQL must equal the same generator.
+
+Rendering is checked in a browser, signed in, at full size, with the
+dashboard's queries sent all at once as a refresh sends them. Sequential
+query checks (ADR-0052, ADR-0054) did not reveal the concurrency limit, the
+refused datasource password or the text panels that showed only numbers.
+The check reports counts, states and times only; map panels are judged by
+their point counts, never by coordinates or screenshots.

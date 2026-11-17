@@ -1,4 +1,8 @@
-"""Independent reconciliation of one live SITL session (ADR-0054).
+"""Independent reconciliation of one live session: SITL or a fleet.
+
+ADR-0054 for one SITL source; ADR-0060 for a fleet of replay players, where
+every check runs per vehicle and the players' ledgers are compared with the
+archive.
 
 Reads, and never changes, the run's SQL scope, archive objects and local
 capture evidence. It reports:
@@ -9,7 +13,9 @@ capture evidence. It reports:
   `LiveRuntime` have the same hash set as SQL, with no logical repeats;
 - untimed streams: no battery or state event carries measurement time;
 - restart behaviour: after a gateway restart, positions show
-  `unknown_after_restart` until new battery and state receipts pass.
+  `unknown_after_restart` until new battery and state receipts pass;
+- fleet only: each player's ledger of sent positions equals the archived
+  position events of its vehicle by identity and content hash.
 
 Output holds counts, digests and statuses only, never coordinates.
 """
@@ -18,9 +24,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
+from tempfile import mkdtemp
 
 from runtime.clickhouse.transport import HttpConfig, _request
 from runtime.continuous.live_worker import ArchivedFacts
@@ -29,18 +37,19 @@ from telemetry.archive_documents import canonical, digest
 from telemetry.continuous_archive import segment_rows
 from telemetry.conversion_contract import (
     integer_value,
+    json_line,
     json_object,
     object_value,
     string_value,
 )
-from telemetry.live_event import read_event
+from telemetry.live_event import read_event, replay_scope
 from telemetry.live_runtime import Document
 from telemetry.local_io import read_bounded
 
 _MAX_CAPTURE = 256 * 1024 * 1024
 
 
-def capture_coverage(state: Path, source: tuple[int, int]) -> Document:
+def capture_coverage(state: Path, sources: set[tuple[int, int]]) -> Document:
     """Match acknowledgement ledgers with the epochs' raw captures."""
     epochs: list[Document] = []
     for capture in sorted(state.glob("capture-*.jsonl")):
@@ -56,13 +65,15 @@ def capture_coverage(state: Path, source: tuple[int, int]) -> Document:
         ]
         published = [r for r in records if r["published"] is True]
         sequences = [integer_value(r["sequence"]) for r in records]
-        # The configured source's channel sequence; other IDs are only counted.
-        seqs = [
-            integer_value(r["mavlink_seq"])
-            for r in records
-            if (r["system"], r["component"]) == source
-        ]
-        lost = sum((b - a - 1) % 256 for a, b in zip(seqs, seqs[1:], strict=False))
+        # Each declared sender's own packet sequence; other IDs are counted.
+        lost = 0
+        for address in sources:
+            seqs = [
+                integer_value(r["mavlink_seq"])
+                for r in records
+                if (r["system"], r["component"]) == address
+            ]
+            lost += sum((b - a - 1) % 256 for a, b in zip(seqs, seqs[1:], strict=False))
         epochs.append(
             {
                 "captured": len(records),
@@ -112,8 +123,7 @@ def reconcile(private: Path, evidence: Path) -> Document:
         return rows(query)[0][0]
 
     # Rebuild from archive objects alone, with its own origin file.
-    rebuild = state.parent / "rebuild-001"
-    rebuild.mkdir()
+    rebuild = Path(mkdtemp(prefix="rebuild-", dir=state.parent))
     reader = storage(config, "reader")
     try:
         archived = ArchivedFacts(config, reader, rebuild)
@@ -131,6 +141,14 @@ def reconcile(private: Path, evidence: Path) -> Document:
         )
     }
     untimed = [e for e in archived_events if e["measurement_id"] is None]
+    declared = (
+        [
+            replay_scope(json_object(read_bounded(path, 8192)))
+            for path in sorted((state / "players").glob("*.declaration.json"))
+        ]
+        if "fleet" in plan
+        else []
+    )
     statuses = rows(
         "SELECT capture_epoch, input_offset, battery_status, state_status "
         f"FROM {database}.points ORDER BY input_offset"
@@ -155,20 +173,72 @@ def reconcile(private: Path, evidence: Path) -> Document:
             for index, name in ((2, "battery"), (3, "state"))
         },
         "restart": restart_behaviour(statuses, archived_events),
-        "capture": capture_coverage(
-            state,
-            (
-                integer_value(object_value(plan["source"])["system"]),
-                integer_value(object_value(plan["source"])["component"]),
-            ),
-        ),
+        "capture": capture_coverage(state, senders(plan, declared)),
     }
+    if "fleet" in plan:
+        result["players"] = ledger_check(
+            state / "players",
+            archived_events,
+            {string_value(s["vehicle"]) for s in declared},
+        )
     result["zero_logical_repeats"] = (
         result["distinct_event_ids"]
         == result["distinct_full_rows_view"]
         == len(rebuilt)
         and result["conflicting_events"] == 0
     )
+    return result
+
+
+def senders(plan: Document, declared: list[Document]) -> set[tuple[int, int]]:
+    sources = declared if "fleet" in plan else [object_value(plan["source"])]
+    return {
+        (integer_value(s["system"]), integer_value(s["component"])) for s in sources
+    }
+
+
+def ledger_check(players: Path, events: list[Document], declared: set[str]) -> Document:
+    """Per vehicle: positions the player sent equal the archived positions."""
+    archived: dict[str, set[tuple[str, str]]] = {}
+    for event in events:
+        vehicle = string_value(object_value(event["source"])["vehicle"])
+        positions = archived.setdefault(vehicle, set())
+        if event["measurement_id"] is None:
+            continue
+        positions.add(
+            (
+                string_value(event["measurement_id"]),
+                hashlib.sha256(json_line(event["native"])).hexdigest(),
+            )
+        )
+    result: Document = {}
+    ledgers = {
+        path.name.removesuffix(".ledger.jsonl"): path
+        for path in players.glob("*.ledger.jsonl")
+    }
+    for vehicle in sorted(declared | archived.keys() | ledgers.keys()):
+        path = ledgers.get(vehicle)
+        lines = (
+            read_bounded(path, _MAX_CAPTURE).splitlines() if path is not None else []
+        )
+        sent = {
+            (string_value(row["measurement_id"]), string_value(row["native_sha256"]))
+            for row in map(json_object, lines)
+        }
+        got = archived.get(vehicle, set())
+        result[vehicle] = {
+            "declared": vehicle in declared,
+            "archive_present": vehicle in archived,
+            "ledger_present": path is not None,
+            "sent_positions": len(sent) if path is not None else None,
+            "archived_positions": len(got),
+            "missing_in_archive": len(sent - got) if path is not None else None,
+            "not_sent_by_player": len(got - sent) if path is not None else None,
+            "equal": vehicle in declared
+            and vehicle in archived
+            and path is not None
+            and sent == got,
+        }
     return result
 
 
@@ -204,17 +274,19 @@ def restart_behaviour(statuses: list[list[object]], events: list[Document]) -> D
     epoch, if anything was received before. Afterwards it is fresh or stale.
     """
     expected: dict[int, tuple[str, str]] = {}
-    seen: dict[str, str | None] = {"battery": None, "state": None}
+    # Receipt order is per vehicle: one vehicle's receipts never count for
+    # another's positions.
+    seen: dict[tuple[str, str], str] = {}
     for offset, event in enumerate(events):
         epoch = string_value(object_value(event["capture"])["epoch"])
         stream = string_value(event["stream"])
+        vehicle = string_value(object_value(event["source"])["vehicle"])
         if stream != "position":
-            seen[stream] = epoch
+            seen[(vehicle, stream)] = epoch
             continue
-
         expected[offset] = (
-            _expected(seen["battery"], epoch),
-            _expected(seen["state"], epoch),
+            _expected(seen.get((vehicle, "battery")), epoch),
+            _expected(seen.get((vehicle, "state")), epoch),
         )
     exact = True
     shown = {"battery": 0, "state": 0}

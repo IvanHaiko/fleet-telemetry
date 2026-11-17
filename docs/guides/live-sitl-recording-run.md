@@ -9,6 +9,10 @@ vehicle or RF link. No arming, takeoff, mission or other flight command is sent.
 Building, starting or stopping services needs the maintainer's authorization,
 as for the F09 runs in the [single-machine guide](f09-single-machine-run.md).
 
+For routine operation (start, status, evidence, stop and restoration) use the
+[operator runbook](operations-runbook.md); this guide keeps the manual steps
+and the orchestrated scenario.
+
 ## What it needs
 
 Everything is already local; nothing is downloaded:

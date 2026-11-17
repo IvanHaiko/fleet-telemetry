@@ -1,4 +1,4 @@
-"""Bounded ordered F09 replay; native-time associations are research assumptions."""
+"""Bounded ordered recording replay; native-time associations are assumptions."""
 
 import hashlib
 import re
@@ -20,9 +20,9 @@ from telemetry.recording_stream import (
     validate_battery_gaps,
     validate_event,
 )
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import F09, Recording, resolve
 
-FACT_PROFILE = "f09-recording-fact-v1"
+FACT_PROFILE = F09.name("recording-fact-v1")
 MAX_EVENTS = 50_000
 MAX_AGE_US = 60_000_000
 _BATTERY = "battery_status:0"
@@ -45,6 +45,7 @@ type _Masks = tuple[list[int], list[int]]
 
 @dataclass(frozen=True)
 class _Context:
+    recording: Recording
     run_id: str
     start_us: int
     end_us: int
@@ -91,10 +92,13 @@ def _masked(timestamp: int, masks: _Masks) -> bool:
 
 def _context(value: Mapping[str, object]) -> _Context:
     require_keys(value, _CONTEXT_KEYS)
-    if (
-        value["profile"] != "f09-recording-context-v1"
-        or value["source_id"] != F09_SOURCE_ID
-    ):
+    try:
+        registered = resolve(
+            value["source_id"], value["profile"], "recording-context-v1"
+        )
+    except ValueError:
+        raise ValueError("processing_context_profile") from None
+    if value["profile"] != registered.name("recording-context-v1"):
         raise ValueError("processing_context_profile")
     run_id = string_value(value["run_id"])
     if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", run_id) is None:
@@ -116,13 +120,14 @@ def _context(value: Mapping[str, object]) -> _Context:
             stream == _GPS
             or stream in streams
             or event["run_id"] != run_id
-            or event["source_id"] != F09_SOURCE_ID
+            or event["source_id"] != registered.source_id
             or integer_value(event["native_timestamp_us"]) >= start
         ):
             raise ValueError("processing_predecessor_scope")
         streams.add(stream)
         predecessors.append(event)
     return _Context(
+        registered,
         run_id,
         start,
         end,
@@ -235,7 +240,7 @@ def process_events(
         event = deepcopy(validate_event(raw))
         timestamp = integer_value(event["native_timestamp_us"])
         if (
-            event["source_id"] != F09_SOURCE_ID
+            event["source_id"] != selected.recording.source_id
             or event["run_id"] != selected.run_id
             or not selected.start_us <= timestamp < selected.end_us
         ):
@@ -255,8 +260,8 @@ def process_events(
             continue
         result.append(
             {
-                "profile": FACT_PROFILE,
-                "source_id": F09_SOURCE_ID,
+                "profile": selected.recording.name("recording-fact-v1"),
+                "source_id": selected.recording.source_id,
                 "run_id": selected.run_id,
                 "measurement_id": event["measurement_id"],
                 "native_timestamp_us": timestamp,

@@ -35,6 +35,49 @@ including NULL references/ages for unknown associations. These are separate
 research profiles; canonical battery semantics, physical clock admission and
 broker delivery contracts remain unchanged.
 
+## Registered recording profiles, 2026-11-17
+
+[ADR-0057](adr/0057-registered-recordings-in-the-integrated-path.md) extends
+these profiles to every recording registered in `telemetry/recordings.py`
+(F09, F07, F03). The registration key prefixes every recording-specific name:
+the GPS and state identity recipes (`<key>-gps-research-v1:<source_id>:<stream>:0:<ordinal>`,
+`<key>-state-research-v1:…`), the event, context, fact and reference profiles
+(`<key>-recording-event-v1` and so on) and the battery normalization version
+(`ulog-battery-<key>-research-v1`). With key `f09` the names, identities and
+bytes are those above, unchanged. An envelope whose source ID is not registered,
+or whose profile does not carry that recording's key, is refused.
+
+The GPS payload keeps one shape. A registration with the older `scaled_integer`
+SensorGps layout (F03) converts int32 1e-7 degrees to degrees and int32
+millimetres to metres exactly, and carries `native_sample_us` as null because
+that layout records no sample timestamp; every other registration requires an
+integer sample time. Navigation-state codes are stored as recorded and their
+meaning is firmware-specific; no label or cross-recording comparison is
+defined. The output wrapper `f09-recording-output-v1` and the runtime,
+job and run configuration formats keep their historical names for every
+recording.
+
+## Mapping-profile recordings, 2026-11-17
+
+[ADR-0058](adr/0058-admission-by-mapping-profile.md) admits an unregistered
+original whose four selected topics have a profile's layout digests and whose
+firmware the profile lists. Every name derives from the profile key instead of
+a registration key: `px4-f09-v1-gps-research-v1:<source_id>:vehicle_gps_position:0:<ordinal>`,
+`px4-f09-v1-recording-event-v1`, `ulog-battery-px4-f09-v1-research-v1` and so
+on. The recipes are unchanged and include the source ID, so two admitted files
+never share a measurement ID, and an admitted file never shares one with a
+registered recording. A registered checksum always keeps its ADR-0057 names.
+The vehicle ID is a file pseudonym, `ulog-<first 16 hex digits of the source
+SHA-256>`, not a vehicle identity. Units, sentinels, enumerations and clocks
+are those reviewed for the profile's reference recording. An envelope under a
+mapping-profile name is resolved from that name; its per-file counts are known
+only where the original was read.
+
+The serving SQL scope adds a `source_progress` table (ADR-0059): write time,
+explanation, publisher state, acknowledged and declared deliveries, native time
+of the last acknowledged event, archived prefix and what serving has taken.
+It holds counts and native times only.
+
 ## Preserved evidence and future reuse, 2026-11-10
 
 [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) requires reusable
@@ -134,6 +177,32 @@ order. The association status is `receipt_ordered`, `stale`,
 and the association is never presented as one by measurement time. A position
 repeated under another receipt is a repeat; competing content at the same
 native time refuses. No existing contract changes.
+
+Recorded flights replayed as virtual vehicles
+([ADR-0060](adr/0060-recorded-flights-as-virtual-vehicles.md)) add:
+
+- `mavlink-vehicle-event-v1`: the same messages and native integers from a
+  source of kind `ulog-replay`, whose scope names the original's checksum,
+  firmware, position topic, system ID and which fields the file supplied.
+  Its position identity is the SHA-256 of the profile, the original's
+  `source_id` and `time_boot_ms`; the system ID is a session assignment and
+  never part of it. SITL events keep `px4-live-event-v1`.
+- `mavlink-fleet-session-v1` (`telemetry/fleet_runtime.py`): a session whose
+  vehicles join with their first event, at most eight, each associated by
+  receipt order with its own battery and state only.
+- In a fact from a replay, a field its scope marks unavailable is null, and
+  so are the player's own heartbeat fields (system status always; armed and
+  base mode unless the file supplied arming state). Units follow the field
+  signatures listed in the ADR; enumerations are not interpreted.
+- New players declare `mapping_version=ulog-replay-plan-v2`. The optional
+  mapping extension is a pair: the version and `velocity_from_boot_ms`, the
+  boot millisecond of the first emitted position with mapped velocity, or
+  null if none has it. Earlier positions have null ground and down speed.
+  A replay heartbeat with `MAV_STATE_UNINIT` carries no recorded arming
+  observation under v2. Its receipt still counts toward connectivity.
+  A subsequent mapped heartbeat can report a genuine disarmed or armed value.
+  Positions keep their existing identity recipe. Readers reconstruct stored
+  declarations without the extension using their original v1 rules.
 
 The [second recording and shared projection](guides/two-recording-view.md#shared-storage-and-interface)
 add `f01-recording-inspection-v1`, source-bound `f01-state-research-v1` identities

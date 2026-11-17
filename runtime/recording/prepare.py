@@ -1,4 +1,4 @@
-"""Prepare private inputs for one single-machine F09 recording run.
+"""Prepare private inputs for one single-machine registered recording run.
 
 Runs on the host before Compose starts. It writes only into a new private
 directory: generated passwords and S3 keys, the SeaweedFS identity file, the
@@ -17,6 +17,8 @@ import re
 import secrets
 import subprocess
 from pathlib import Path
+
+from telemetry.recordings import resolve
 
 ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD = ROOT / "runtime/flight_analytics/dashboards/recording-stream.json"
@@ -42,6 +44,18 @@ def require(value: object, reason: str) -> None:
 
 def database_name(run_id: str) -> str:
     return run_id.replace("-", "_")
+
+
+def render_dashboard(template: str, database: str, label: str) -> str:
+    """One shared template; only the run database and the recording label vary.
+
+    The constant variable stores the database name in query, current and
+    options. Every visible "F09" is a title or description naming the recording.
+    """
+    require(template.count(TEMPLATE_DATABASE) == 5, "recording_dashboard_template")
+    # A registered key (F09) or an admitted file (ULog 7a490a1c, ADR-0058).
+    require(re.fullmatch(r"F[0-9]{2}|ULog [0-9a-f]{8}", label), "recording_label")
+    return template.replace(TEMPLATE_DATABASE, database).replace("F09", label)
 
 
 def bucket_name(run_id: str) -> str:
@@ -75,7 +89,7 @@ def software() -> Document:
             ["git", "-C", str(ROOT), *args],
             check=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             timeout=30,
         ).stdout
 
@@ -181,17 +195,27 @@ def prepare(
     require(isinstance(run_id, str) and _RUN.fullmatch(run_id), "recording_run_id")
     run = str(run_id)
     database = database_name(run)
-    template = DASHBOARD.read_text(encoding="utf-8")
-    # The constant variable stores the name in query, current and options.
-    require(template.count(TEMPLATE_DATABASE) == 5, "recording_dashboard_template")
     bundle_path, reference_path = container_path(bundle), container_path(reference)
+    registered = resolve(
+        manifest.get("source_id"),
+        manifest.get("profile"),
+        "recording-stream-bundle-v1",
+    )
+    dashboard = render_dashboard(
+        DASHBOARD.read_text(encoding="utf-8"), database, registered.label
+    )
 
+    original = file_digest(source)
+    require(
+        "sha256:" + str(original["sha256"]) == registered.source_id,
+        "recording_original_mismatch",
+    )
     reference_digest = file_digest(reference)
     revision = software()
     source_manifest = {
         "format_version": "f09-recording-source-manifest-v1",
         "run_id": run,
-        "original": file_digest(source),
+        "original": original,
         "bundle_manifest": file_digest(manifest_path),
         "reference": reference_digest,
         "software": revision,
@@ -217,7 +241,7 @@ def prepare(
         _json(private / "source-manifest.json", source_manifest)
         _write(
             private / "dashboards/recording-stream.json",
-            template.replace(TEMPLATE_DATABASE, database),
+            dashboard,
         )
     finally:
         os.umask(previous)

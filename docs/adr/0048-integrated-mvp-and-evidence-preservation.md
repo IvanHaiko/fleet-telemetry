@@ -75,7 +75,7 @@ as production or turn a diagram into a correctness guarantee.
 ## Owners and next increment
 
 [Architecture](../architecture.md#integrated-local-mvp-target-2026-11-10) owns
-the component path and current gaps. [Roadmap](../roadmap.md#integrated-mvp-priority-2026-11-10)
+the component path and current gaps. [Roadmap](../roadmap-history.md#integrated-mvp-priority-2026-11-10)
 owns sequencing and observable acceptance. [Data contracts](../data-contracts.md#preserved-evidence-and-future-reuse-2026-11-10)
 own identity, clocks and lineage. [Deployment](../deployment-and-terraform.md#run-evidence-and-retention-policy-2026-11-10)
 owns capture/storage inventories and retention. [Testing](../testing-strategy.md#integrated-mvp-evidence-2026-11-10)

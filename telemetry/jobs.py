@@ -24,6 +24,7 @@ from telemetry.models import (
     SourceManifest,
     ULogSourceManifest,
 )
+from telemetry.recordings import lookup
 from telemetry.validation import (
     identifier,
     integer,
@@ -32,8 +33,6 @@ from telemetry.validation import (
     validate_ulog_manifest,
 )
 from ulog_integrity import (
-    F09_MAX_INPUT_BYTES,
-    F09_SOURCE_ID,
     MAX_INPUT_BYTES,
     ULogExpectation,
 )
@@ -188,7 +187,8 @@ def load_job(path: Path) -> ConversionJob:
     require_keys(source, {"path", "source_log_id", "size_bytes"})
     size = integer_value(source["size_bytes"])
     checksum = string_value(source["source_log_id"])
-    limit = F09_MAX_INPUT_BYTES if checksum == F09_SOURCE_ID else MAX_INPUT_BYTES
+    registered = lookup(checksum)
+    limit = MAX_INPUT_BYTES if registered is None else registered.max_input_bytes
     if not 0 < size <= limit:
         raise ConversionError("invalid_input_size")
     if re.fullmatch(r"sha256:[0-9a-f]{64}", checksum) is None:

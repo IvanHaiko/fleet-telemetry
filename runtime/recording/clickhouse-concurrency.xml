@@ -1,0 +1,12 @@
+<!--
+  Recording profile only; merged after the shared limits.xml (config.d files
+  apply in name order). A dashboard refresh sends all of its panel queries at
+  once (15 for the F09 view, 16 with run health); with the shared limit of 4,
+  4 to 9 panels failed with TOO_MANY_SIMULTANEOUS_QUERIES on every refresh,
+  and the serving worker and the status probe compete for the same slots.
+  Memory stays bounded by max_server_memory_usage and each reader's
+  max_memory_usage; every reader query runs with max_threads=1.
+-->
+<clickhouse>
+  <max_concurrent_queries>24</max_concurrent_queries>
+</clickhouse>

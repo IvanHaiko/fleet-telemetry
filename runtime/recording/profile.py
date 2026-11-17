@@ -11,6 +11,8 @@ only, never paths, credentials or measurement data.
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -52,6 +54,7 @@ class Profile:
     private: Path
     paused: set[str] = field(default_factory=set)
     profiles: tuple[str, ...] = ("run",)
+    observer_suffix: str = ""
 
     @property
     def compose(self) -> list[str]:
@@ -66,7 +69,7 @@ class Profile:
 
     @property
     def observer(self) -> str:
-        return f"f09-observer-{self.run_id}"
+        return f"f09-observer-{self.run_id}{self.observer_suffix}"
 
     @staticmethod
     def container(service: str) -> str:
@@ -79,9 +82,20 @@ class Profile:
             handle.write(line + "\n")
         print(line, flush=True)
 
-    def docker(self, *args: str, timeout: float = 300, check: bool = True) -> str:
+    def docker(
+        self,
+        *args: str,
+        timeout: float = 300,
+        check: bool = True,
+        env: dict[str, str] | None = None,
+    ) -> str:
         result = subprocess.run(
-            ["docker", *args], capture_output=True, text=True, timeout=timeout, cwd=ROOT
+            ["docker", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=ROOT,
+            env=None if env is None else {**os.environ, **env},
         )
         if check and result.returncode != 0:
             with (self.out / "docker-errors.log").open("a", encoding="utf-8") as log:
@@ -194,6 +208,39 @@ class Profile:
             if len(cells) >= 4 and cells[1] == topic and cells[2] == "0":
                 return int(cells[3]) if cells[3].isdigit() else None
         return None
+
+    def submit(self, restore: str | None = None) -> str:
+        """Submit this run's job, or resubmit it from a retained checkpoint."""
+        command = ["run", "--rm", "-T", "submit"]
+        if restore is not None:
+            command += [
+                *("submit", "-py", "/workspace/runtime/pyflink/recording_job.py"),
+                *("--config", f"/evidence/{self.run_id}/config/job.json"),
+                *("--restore", restore),
+            ]
+        output = self.docker(*self.compose, *command, timeout=600)
+        match = re.search(r"JobID ([0-9a-f]{32})", output)
+        require(match is not None, "submit_failed")
+        assert match is not None
+        return match[1]
+
+    def start_observer(self, expected: int, interval: float) -> None:
+        """One sampling container in the archive namespace with its own clock."""
+        archive = self.inspect(self.container("archive"))["Id"]
+        name = "observe" + self.observer_suffix
+        self.docker(
+            *("run", "-d", "--name", self.observer),
+            *("--network", f"container:{archive}"),
+            *("--read-only", "--user", "10001:10001", "--entrypoint", "python"),
+            *("-v", f"{ROOT.as_posix()}:/workspace:ro"),
+            *("-v", f"{self.private.resolve().as_posix()}:/private:ro"),
+            *("-v", f"{PROJECT}_evidence:/evidence:ro"),
+            *("-v", f"{self.out.as_posix()}:/out"),
+            *(WORKER_IMAGE, "-P", "-m", "runtime.continuous.recording_observe"),
+            *("--private", "/private", "--evidence", "/evidence"),
+            *("--out", f"/out/{name}.jsonl"),
+            *("--expected", str(expected), "--interval", str(interval)),
+        )
 
     def start(self) -> None:
         """Start the long-running services and wait until each one answers."""

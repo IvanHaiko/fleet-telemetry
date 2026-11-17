@@ -9,16 +9,16 @@ import struct
 from dataclasses import dataclass, field
 from hashlib import sha256
 
+from telemetry.recordings import F09, lookup
+
 MAX_INPUT_BYTES = 16 * 1024 * 1024
 MAX_RECORDS = 100_000
-F09_SOURCE_ID = (
-    "sha256:30f1d0f89f6eed0853cdf78a04eced1c5f56afd047541594158a76df74b1a1a0"
-)
+F09_SOURCE_ID = F09.source_id
 F01_SOURCE_ID = (
     "sha256:36e54ff7c13619f96c9fb56a74c9fb3efb0650600881412a9363f00a65d7141b"
 )
-F09_MAX_INPUT_BYTES = 128 * 1024 * 1024
-F09_MAX_RECORDS = 2_500_000
+F09_MAX_INPUT_BYTES = F09.max_input_bytes
+F09_MAX_RECORDS = F09.max_records
 MAX_NESTING_DEPTH = 32
 MAX_EXPANDED_FIELDS = 4096
 MAX_SUBSCRIBED_FIELDS = 100_000
@@ -272,17 +272,17 @@ def inspect_ulog(data: bytes, expectation: ULogExpectation) -> ULogInspection:
     Terminal padding may be wholly omitted or wholly present, never partial.
     The exact registered F09 checksum has separate limits and admits the
     default-parameter flag and Q and byte-array M records under ADR-0041.
-    Registered F01 admits those service frames under ADR-0044 with default limits.
+    Registered F01 (ADR-0044) and the other recordings in telemetry.recordings
+    (ADR-0057) admit those service frames with their registered limits.
     """
     if type(data) is not bytes:
         raise InputIntegrityError("invalid_input_type")
-    f09 = expectation.source_log_id == F09_SOURCE_ID
-    extended_service_frames = expectation.source_log_id in (
-        F09_SOURCE_ID,
-        F01_SOURCE_ID,
+    registered = lookup(expectation.source_log_id)
+    extended_service_frames = (
+        registered is not None or expectation.source_log_id == F01_SOURCE_ID
     )
-    byte_limit = F09_MAX_INPUT_BYTES if f09 else MAX_INPUT_BYTES
-    frame_limit = F09_MAX_RECORDS if f09 else MAX_RECORDS
+    byte_limit = MAX_INPUT_BYTES if registered is None else registered.max_input_bytes
+    frame_limit = MAX_RECORDS if registered is None else registered.max_records
     if len(data) > byte_limit:
         raise InputIntegrityError("input_size_limit")
     if (

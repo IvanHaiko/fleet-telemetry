@@ -16,7 +16,7 @@ from pathlib import Path
 
 from runtime.clickhouse.transport import HttpConfig
 from runtime.continuous.kafka import Kafka
-from runtime.continuous.live_sql import LiveSQL
+from runtime.continuous.live_sql import FleetSQL, LiveSQL
 from runtime.continuous.recording_initialize import (
     CLUSTER_ID,
     CONNECTION,
@@ -35,7 +35,15 @@ from telemetry.conversion_contract import (
     object_value,
     string_value,
 )
-from telemetry.live_runtime import SESSION_PROFILE, Document, session_config
+from telemetry.fleet_runtime import (
+    FLEET_PROFILE,
+    fleet_config,
+)
+from telemetry.live_runtime import (
+    SESSION_PROFILE,
+    Document,
+    session_config,
+)
 from telemetry.local_io import read_bounded
 
 
@@ -46,13 +54,27 @@ def initialize(private: Path, evidence: Path) -> Document:
     run = string_value(plan["run_id"])
     root = evidence / run
     require(evidence.is_dir() and not root.exists(), "live_evidence_exists")
-    session = session_config(
-        {
-            "profile": SESSION_PROFILE,
-            "run_id": run,
-            "source": object_value(plan["source"]),
-            "max_receipt_age_ms": plan["max_receipt_age_ms"],
-        }
+    # A fleet session admits vehicles as players declare them (ADR-0060);
+    # otherwise one declared SITL source (ADR-0054).
+    fleet = "fleet" in plan
+    session = (
+        fleet_config(
+            {
+                "profile": FLEET_PROFILE,
+                "run_id": run,
+                "max_receipt_age_ms": plan["max_receipt_age_ms"],
+                "max_vehicles": object_value(plan["fleet"])["max_vehicles"],
+            }
+        )
+        if fleet
+        else session_config(
+            {
+                "profile": SESSION_PROFILE,
+                "run_id": run,
+                "source": object_value(plan["source"]),
+                "max_receipt_age_ms": plan["max_receipt_age_ms"],
+            }
+        )
     )
     session_sha256 = hashlib.sha256(json_line(session)).hexdigest()
     limit = integer_value(plan["max_deliveries"])
@@ -66,8 +88,10 @@ def initialize(private: Path, evidence: Path) -> Document:
         ),
         database,
         string_value(secrets["grafana_reader"]),
-        LiveSQL,
-        ("facts", "progress", "collector"),
+        FleetSQL if fleet else LiveSQL,
+        ("facts", "progress", "collector", "vehicles")
+        if fleet
+        else ("facts", "progress", "collector"),
     )
     keys = object_value(secrets["s3"])
     bucket = string_value(plan["bucket"])

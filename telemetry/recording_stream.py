@@ -1,4 +1,4 @@
-"""Strict offline events for the registered F09 research recording only.
+"""Strict offline events for registered exact research recordings only.
 
 GPS/state keep boot-relative time. Battery retains its original synthetic UTC
 anchor and publication-time meaning; the outer run is delivery metadata only.
@@ -14,13 +14,12 @@ from hashlib import sha256
 from typing import cast
 
 from telemetry.conversion_contract import json_object
-from telemetry.models import F09_NORMALIZATION_VERSION
+from telemetry.recordings import F09, Recording, recording, resolve
 from telemetry_reader import read_battery_event
-from ulog_integrity import F09_SOURCE_ID
 
 type Document = dict[str, object]
 
-EVENT_PROFILE = "f09-recording-event-v1"
+EVENT_PROFILE = F09.name("recording-event-v1")
 STREAMS = (
     "battery_status:0",
     "vehicle_land_detected:0",
@@ -28,7 +27,6 @@ STREAMS = (
     "vehicle_gps_position:0",
 )
 _MAX_BYTES = 65_536
-_VEHICLE = "f09-research-vehicle"
 _ENVELOPE = {
     "profile",
     "source_id",
@@ -118,17 +116,23 @@ def _encode(value: Mapping[str, object]) -> bytes:
     return body
 
 
-def _gps(payload: object) -> Document:
+def _gps(payload: object, registered: Recording) -> Document:
     row = _mapping(payload, _GPS)
     ordinal = _integer(row["source_ordinal"])
     _integer(row["native_timestamp_us"])
-    _integer(row["native_sample_us"])
+    if registered.gps_layout == "scaled_integer":
+        # The older SensorGps layout records no separate sample timestamp.
+        if row["native_sample_us"] is not None:
+            raise ValueError("gps_sample_time")
+    else:
+        _integer(row["native_sample_us"])
     _integer(row["gps_time_relative_us"], -(2**31), 2**31)
     fix = _integer(row["fix_type"], 0, 256)
     identity = sha256(
-        f"f09-gps-research-v1:{F09_SOURCE_ID}:vehicle_gps_position:0:{ordinal}".encode()
+        f"{registered.gps_profile}:{registered.source_id}"
+        f":vehicle_gps_position:0:{ordinal}".encode()
     ).hexdigest()
-    if row["vehicle_id"] != _VEHICLE or row["event_id"] != identity:
+    if row["vehicle_id"] != registered.vehicle_id or row["event_id"] != identity:
         raise ValueError("gps_identity")
     latitude, longitude = row["latitude_deg"], row["longitude_deg"]
     if (latitude is None) != (longitude is None):
@@ -168,7 +172,7 @@ def _gps(payload: object) -> Document:
     return row
 
 
-def _state(stream: str, payload: object) -> Document:
+def _state(stream: str, payload: object, registered: Recording) -> Document:
     row = _mapping(
         payload,
         {"event_id", "stream", "source_ordinal", "native_timestamp_us"} | _VALUES,
@@ -177,7 +181,7 @@ def _state(stream: str, payload: object) -> Document:
     _integer(row["native_timestamp_us"])
     name = stream.removesuffix(":0")
     identity = sha256(
-        f"f09-state-research-v1:{F09_SOURCE_ID}:{name}:0:{ordinal}".encode()
+        f"{registered.state_profile}:{registered.source_id}:{name}:0:{ordinal}".encode()
     ).hexdigest()
     if row["stream"] != name or row["event_id"] != identity:
         raise ValueError("state_identity")
@@ -195,7 +199,7 @@ def _state(stream: str, payload: object) -> Document:
     return row
 
 
-def _battery(payload: object) -> Document:
+def _battery(payload: object, registered: Recording) -> Document:
     row = _mapping(payload, _BATTERY)
     source_time = _mapping(
         row["source_time"],
@@ -209,9 +213,9 @@ def _battery(payload: object) -> Document:
     _mapping(row["delivery"], {"dataset_run_id", "replay_mode"})
     _mapping(row["payload"], {"voltage_v", "current_a", "remaining_fraction"})
     if (
-        row["source_log_id"] != F09_SOURCE_ID
-        or row["vehicle_id"] != _VEHICLE
-        or row["normalization_version"] != F09_NORMALIZATION_VERSION
+        row["source_log_id"] != registered.source_id
+        or row["vehicle_id"] != registered.vehicle_id
+        or row["normalization_version"] != registered.battery_normalization
         or row["source_type"] != "ulog"
         or row["source_stream"] != STREAMS[0]
     ):
@@ -222,12 +226,12 @@ def _battery(payload: object) -> Document:
     return dict(read_battery_event(_encode(row)))
 
 
-def _payload(stream: str, payload: object) -> Document:
+def _payload(stream: str, payload: object, registered: Recording) -> Document:
     if stream == STREAMS[0]:
-        return _battery(payload)
+        return _battery(payload, registered)
     if stream in _STATE_VALUES:
-        return _state(stream, payload)
-    return _gps(payload)
+        return _state(stream, payload, registered)
+    return _gps(payload, registered)
 
 
 def _coordinates(stream: str, payload: Document) -> tuple[int, int, str]:
@@ -241,16 +245,22 @@ def _coordinates(stream: str, payload: Document) -> tuple[int, int, str]:
     return ordinal, native, cast(str, payload["event_id"])
 
 
-def make_event(stream: str, payload: Mapping[str, object], run_id: str) -> Document:
+def make_event(
+    stream: str,
+    payload: Mapping[str, object],
+    run_id: str,
+    source_id: str = F09.source_id,
+) -> Document:
     """Wrap a validated original payload without rebasing its identity or time."""
     if not isinstance(stream, str) or stream not in STREAMS:
         raise ValueError("event_stream")
-    row = _payload(stream, payload)
+    registered = recording(source_id)
+    row = _payload(stream, payload, registered)
     ordinal, native, identity = _coordinates(stream, row)
     return validate_event(
         {
-            "profile": EVENT_PROFILE,
-            "source_id": F09_SOURCE_ID,
+            "profile": registered.name("recording-event-v1"),
+            "source_id": registered.source_id,
             "run_id": run_id,
             "stream": stream,
             "source_ordinal": ordinal,
@@ -264,7 +274,11 @@ def make_event(stream: str, payload: Mapping[str, object], run_id: str) -> Docum
 def validate_event(event: Mapping[str, object]) -> Document:
     """Return an independent strict JSON document; reject inconsistent envelopes."""
     row = _mapping(event, _ENVELOPE)
-    if row["profile"] != EVENT_PROFILE or row["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = resolve(row["source_id"], row["profile"], "recording-event-v1")
+    except ValueError:
+        raise ValueError("event_profile") from None
+    if row["profile"] != registered.name("recording-event-v1"):
         raise ValueError("event_profile")
     run = row["run_id"]
     if not isinstance(run, str) or re.fullmatch(r"[A-Za-z0-9._-]{1,128}", run) is None:
@@ -272,7 +286,7 @@ def validate_event(event: Mapping[str, object]) -> Document:
     stream = row["stream"]
     if not isinstance(stream, str) or stream not in STREAMS:
         raise ValueError("event_stream")
-    payload = _payload(stream, row["payload"])
+    payload = _payload(stream, row["payload"], registered)
     ordinal, native, identity = _coordinates(stream, payload)
     if (
         _integer(row["source_ordinal"]) != ordinal

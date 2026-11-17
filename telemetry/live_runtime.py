@@ -22,6 +22,9 @@ from telemetry.conversion_contract import (
     string_value,
 )
 from telemetry.live_event import (
+    MAV_STATE_UNINIT,
+    REPLAY_KIND,
+    REPLAY_MAPPING_V2,
     content_signature,
     epoch_value,
     event_bytes,
@@ -83,6 +86,54 @@ def state_values(native: Mapping[str, object]) -> Document:
         "custom_mode_code": integer_value(native["custom_mode"]),
         "system_status_code": integer_value(native["system_status"]),
     }
+
+
+def _available(source: Mapping[str, object]) -> Mapping[str, object] | None:
+    """A replay's declared availability; None for a source that sends all."""
+    if source.get("kind") != REPLAY_KIND:
+        return None
+    return object_value(source["available"])
+
+
+def shown_position(source: Mapping[str, object], native: dict[str, int]) -> Document:
+    """Position values; fields the replay could not derive stay null."""
+    values: Document = dict(position_values(native))
+    available = _available(source)
+    if available is not None:
+        if not available["relative_alt"]:
+            values["relative_altitude_m"] = None
+        first = source.get("velocity_from_boot_ms")
+        if not available["velocity"] or (
+            first is not None and native["time_boot_ms"] < integer_value(first)
+        ):
+            values["ground_speed_m_s"] = values["down_speed_m_s"] = None
+    return values
+
+
+def shown_values(
+    source: Mapping[str, object], stream: str, native: Mapping[str, object]
+) -> Document:
+    """Battery or state values; the player's own heartbeat fields stay null.
+
+    A replay's HEARTBEAT exists to show the virtual vehicle is reachable. Its
+    system status is the player's, and its armed flag and mode code are
+    recorded values only where the declaration says the file supplied them.
+    """
+    values = battery_values(native) if stream == "battery" else state_values(native)
+    available = _available(source)
+    if available is None:
+        return values
+    if stream == "battery":
+        return values if available["battery"] else dict.fromkeys(values)
+    values["system_status_code"] = None
+    if not available["armed"] or (
+        source.get("mapping_version") == REPLAY_MAPPING_V2
+        and native["system_status"] == MAV_STATE_UNINIT
+    ):
+        values["armed"] = values["base_mode_code"] = None
+    if not available["mode"]:
+        values["custom_mode_code"] = None
+    return values
 
 
 def _capture(event: Mapping[str, object]) -> tuple[str, int]:
@@ -187,8 +238,9 @@ class LiveRuntime:
         if age < 0:
             raise ValueError("live_runtime_receipt_order")
         fresh = age <= integer_value(self.session["max_receipt_age_ms"])
-        native = object_value(prior["native"])
-        values = battery_values(native) if stream == "battery" else state_values(native)
+        values = shown_values(
+            object_value(prior["source"]), stream, object_value(prior["native"])
+        )
         return {
             "status": "receipt_ordered" if fresh else "stale",
             "observation_id": identity,
@@ -208,7 +260,7 @@ class LiveRuntime:
             "capture": row["capture"],
             "received_unix_ms": row["received_unix_ms"],
             "input_event_sha256": hashlib.sha256(event_bytes(row)).hexdigest(),
-            "position": position_values(native),
+            "position": shown_position(object_value(row["source"]), native),
             "battery": self._association("battery", row),
             "state": self._association("state", row),
         }

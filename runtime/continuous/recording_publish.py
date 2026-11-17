@@ -1,4 +1,10 @@
-"""Bounded F09 publication, independent input archival and archive-gated serving."""
+"""Paced F09 publication to the run's input topic with an acknowledgement ledger.
+
+Delivery `i` of the declared sequence must land at offset `i` of partition 0.
+A start after a stop continues at the next undelivered index: the ledger must
+be a prefix of the declared deliveries and agree with the broker's end offset
+(see `resume_point`).
+"""
 
 import hashlib
 import os
@@ -23,6 +29,57 @@ from telemetry.conversion_contract import (
     object_value,
     string_value,
 )
+from telemetry.local_io import read_bounded
+
+# One ledger line is about 130 bytes; 50,000 deliveries stay well below this.
+MAX_LEDGER = 16 * 1024 * 1024
+# The status file is rewritten at least this often while the publisher waits.
+HEARTBEAT_S = 1.0
+
+
+def resume_point(
+    ledger: Path,
+    wires: list[bytes],
+    topic: str,
+    end: int,
+    record_at: Callable[[int], bytes],
+) -> int:
+    """The next delivery index, after checking the ledger against the broker.
+
+    Every ledger line must equal the acknowledgement of the declared delivery at
+    its index. The broker's end offset must equal the ledger length, or exceed it
+    by one when the process stopped between the broker's acknowledgement and the
+    ledger write; that record is admitted only if its bytes equal the next
+    declared delivery, and its line is appended. Anything else is lost or foreign
+    data, so publication refuses instead of creating a gap or a repeat.
+    """
+
+    def line(index: int) -> bytes:
+        digest = hashlib.sha256(wires[index]).hexdigest()
+        return json_line(
+            {"topic": topic, "partition": 0, "offset": index, "sha256": digest}
+        )
+
+    if not ledger.exists():
+        require(end == 0, "recording_producer_topic_not_empty")
+        return 0
+    body = read_bounded(ledger, MAX_LEDGER)
+    require(not body or body.endswith(b"\n"), "recording_producer_ledger_torn")
+    lines = body.splitlines(keepends=True)
+    require(
+        len(lines) <= len(wires)
+        and all(text == line(index) for index, text in enumerate(lines)),
+        "recording_producer_ledger_mismatch",
+    )
+    count = len(lines)
+    if end == count + 1 and count < len(wires) and record_at(count) == wires[count]:
+        with ledger.open("ab") as handle:
+            handle.write(line(count))
+            handle.flush()
+            os.fsync(handle.fileno())
+        return count + 1
+    require(end == count, "recording_producer_resume_offset")
+    return count
 
 
 def publish(config: Document, root: Path) -> None:
@@ -42,19 +99,59 @@ def publish(config: Document, root: Path) -> None:
     source = object_value(object_value(config["sources"])["input"])
     topic = string_value(source["topic"])
     stopped, deadline = lifetime(config)
+    ledger_path = root / "producer-acks.jsonl"
+    consumer = kafka.consumer(string_value(config["run_id"]) + "-publisher-resume")
+    try:
+
+        def record_at(offset: int) -> bytes:
+            consumer.assign([kafka.sdk.TopicPartition(topic, 0, offset)])
+            until = time.monotonic() + 10
+            while time.monotonic() < until:
+                message = consumer.poll(0.5)
+                if message is not None:
+                    require(
+                        message.offset() == offset, "recording_producer_resume_read"
+                    )
+                    return message.value() or b""
+            raise ValueError("recording_producer_resume_read")
+
+        _, end = consumer.get_watermark_offsets(
+            kafka.sdk.TopicPartition(topic, 0, 0), timeout=5, cached=False
+        )
+        start = resume_point(ledger_path, wires, topic, end, record_at)
+    finally:
+        consumer.close()
     first = integer_value(events[0]["native_timestamp_us"])
-    began = time.monotonic()
-    count = 0
+    # Native-time pacing restarts at the first undelivered event.
+    resumed_us = integer_value(
+        events[min(start, len(events) - 1)]["native_timestamp_us"]
+    )
+    began = time.monotonic() - (resumed_us - first) / 1000000
+    count = start
+    heartbeat = time.monotonic()
 
     def status(value: str) -> None:
+        """Explicit publisher state and the last acknowledged source position.
+
+        `paused` and `completed` (end of the declared deliveries) are states,
+        not inferred from silence; the file is rewritten at least every
+        HEARTBEAT_S while waiting, so its age measures the publisher itself.
+        """
+        nonlocal heartbeat
+        last = min(count, len(events)) - 1
         durable_cursor(
             root / "producer-status.json",
             {
                 "status": value,
                 "acknowledged": count,
+                "declared": len(wires),
+                "position_native_us": None
+                if last < 0
+                else integer_value(events[last]["native_timestamp_us"]),
                 "written_ms": time.time_ns() // 1000000,
             },
         )
+        heartbeat = time.monotonic()
 
     def wait_until(target: float) -> None:
         nonlocal began
@@ -71,10 +168,15 @@ def publish(config: Document, root: Path) -> None:
                         not stopped() and time.monotonic() < deadline,
                         "recording_producer_stopped",
                     )
+                    if time.monotonic() - heartbeat >= HEARTBEAT_S:
+                        status("paused")
                     time.sleep(0.05)
                 delta = time.monotonic() - paused
                 began += delta
                 target += delta
+                status("running")
+            elif time.monotonic() - heartbeat >= HEARTBEAT_S:
+                status("running")  # a native-time gap: waiting, not silent
             time.sleep(min(0.01, max(0.0, target - time.monotonic())))
 
     def delivery_callback(
@@ -96,8 +198,9 @@ def publish(config: Document, root: Path) -> None:
         return acknowledged
 
     try:
-        with (root / "producer-acks.jsonl").open("xb") as ledger:
-            for index, wire in enumerate(wires):
+        with ledger_path.open("ab" if ledger_path.exists() else "xb") as ledger:
+            for index in range(start, len(wires)):
+                wire = wires[index]
                 require(
                     not stopped() and time.monotonic() < deadline,
                     "recording_producer_stopped",
@@ -139,7 +242,7 @@ def publish(config: Document, root: Path) -> None:
                 status("running")
         status("completed")
     except (OSError, ValueError):
-        status("failed")
+        status("stopped" if stopped() else "failed")
         raise
     finally:
         producer.flush(10)

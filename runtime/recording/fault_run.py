@@ -45,9 +45,7 @@ from runtime.recording.fault_actions import (
 from runtime.recording.fault_analysis import evaluate
 from runtime.recording.prepare import prepare
 from runtime.recording.profile import (
-    PROJECT,
     ROOT,
-    WORKER_IMAGE,
     Document,
     Profile,
     RunFailure,
@@ -58,6 +56,36 @@ PREPARED = ROOT / ".local-discovery/gold-grafana-20261104/connected-recording-v1
 ORIGINAL = (
     ROOT / ".local-discovery/real-ulog-20261027-001/log_67_2025-8-21-14-24-48.ulg"
 )
+_REVIEW = ROOT / ".local-discovery/second-log-review-20261117"
+_PX4 = ROOT / ".local-discovery/fleet-source-inventory-20261103/px4-originals"
+# Local, ignored locations of each registered recording's verified inspection
+# and exact original (telemetry/recordings.py, ADR-0057). Source modes are the
+# registration keys; "live" is the separate SITL profile.
+RECORDING_INPUTS = {
+    "f09": (PREPARED, ORIGINAL),
+    "f07": (
+        _REVIEW / "f07/inspection",
+        _PX4 / "ac5a5608-5fc8-4422-9f2d-3ae25ab7c2c3.ulg",
+    ),
+    "f03": (
+        _REVIEW / "f03/inspection",
+        _PX4 / "3908856f-e963-44f2-95a8-5c158a2f3629.ulg",
+    ),
+}
+
+
+def recording_inputs(source: str) -> tuple[Path, Path]:
+    require(source in RECORDING_INPUTS, "recording_source")
+    return RECORDING_INPUTS[source]
+
+
+def plan_inputs(plan: Document) -> tuple[Path, Path]:
+    """A run's prepared inspection and original: its own for an admitted file."""
+    if plan.get("source") == "ulog":
+        return ROOT / str(plan["prepared"]), Path(str(plan["original"]))
+    return recording_inputs(str(plan["source"]))
+
+
 RECOVERY_DEFINITION = (
     "fault start to the first sample after the resume action at which every "
     "fact acknowledged before the fault is SQL-visible, at least one fact "
@@ -86,7 +114,10 @@ CORRECTNESS = [
 
 def git(*args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True
+        ["git", "-C", str(ROOT), *args],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
     ).stdout
 
 
@@ -103,11 +134,19 @@ def python(*args: str) -> Document:
     return cast(Document, json.loads(lines[-1]))
 
 
-def prepare_inputs(args: argparse.Namespace, out: Path, private: Path) -> Document:
+def prepare_inputs(
+    args: argparse.Namespace,
+    out: Path,
+    private: Path,
+    inputs: tuple[Path, Path] | None = None,
+) -> Document:
     """Fresh bundle, reference and private scope for exactly this interval."""
+    prepared_inputs, original = inputs or recording_inputs(
+        getattr(args, "source", "f09")
+    )
     python(
         "runtime.flight_analytics.stream_prepare",
-        *("--prepared", str(PREPARED), "--source", str(ORIGINAL)),
+        *("--prepared", str(prepared_inputs), "--source", str(original)),
         *("--output", str(out / "bundle"), "--run-id", args.run_id),
         *("--start-us", str(args.start_us), "--end-us", str(args.end_us)),
     )
@@ -117,7 +156,7 @@ def prepare_inputs(args: argparse.Namespace, out: Path, private: Path) -> Docume
         *("--max-age-us", "1000000"),
     )
     reference = out / "reference/facts.jsonl"
-    prepared = prepare(out / "bundle", reference, ORIGINAL, private)
+    prepared = prepare(out / "bundle", reference, original, private)
     return {
         # recording_initialize appends two declared repeats to the events.
         "deliveries": cast(int, prepared["events"]) + 2,
@@ -168,24 +207,10 @@ def launch(
     run: Profile, args: argparse.Namespace, expected: int
 ) -> subprocess.Popen[bytes]:
     """Submit the job, start the observer and sampler, then the workers."""
-    submitted = run.docker(*run.compose, *"run --rm -T submit".split(), timeout=600)
-    match = re.search(r"JobID ([0-9a-f]{32})", submitted)
-    require(match is not None, "submit_failed")
-    assert match is not None
-    job = match[1]
+    job = run.submit()
     run.wait(lambda: run.job_running(job), 180, "job_not_running")
     run.log("job_running", job=job)
-    archive = run.inspect(run.container("archive"))["Id"]
-    run.docker(
-        *("run", "-d", "--name", run.observer, "--network", f"container:{archive}"),
-        *("--read-only", "--user", "10001:10001", "--entrypoint", "python"),
-        *("-v", f"{ROOT.as_posix()}:/workspace:ro"),
-        *("-v", f"{run.private.resolve().as_posix()}:/private:ro"),
-        *("-v", f"{PROJECT}_evidence:/evidence:ro", "-v", f"{run.out.as_posix()}:/out"),
-        *(WORKER_IMAGE, "-P", "-m", "runtime.continuous.recording_observe"),
-        *"--private /private --evidence /evidence --out /out/observe.jsonl".split(),
-        *("--expected", str(expected), "--interval", str(args.interval)),
-    )
+    run.start_observer(expected, args.interval)
     sampler = subprocess.Popen(
         [sys.executable, "-m", "runtime.recording.sample_resources"]
         + ["--output", str(run.out / "resources.jsonl"), "--interval", "10"],

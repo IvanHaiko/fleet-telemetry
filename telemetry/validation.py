@@ -131,29 +131,27 @@ def validate_ulog_manifest(manifest: ULogSourceManifest) -> None:
         or re.fullmatch(r"sha256:[0-9a-f]{64}", manifest.source_log_id) is None
     ):
         raise InvalidInput("invalid_manifest", "source_log_id")
-    from telemetry.models import (
-        F09_FIRMWARE,
-        F09_NATIVE_FORMAT,
-        F09_NORMALIZATION_VERSION,
-        F09_PRODUCER_PROFILE,
-    )
-    from ulog_integrity import F09_SOURCE_ID
+    from telemetry.recordings import lookup
 
-    f09 = manifest.source_log_id == F09_SOURCE_ID
+    registered = lookup(manifest.source_log_id)
     versions = {
-        "firmware_commit": F09_FIRMWARE if f09 else ULOG_FIRMWARE,
-        "producer_profile": F09_PRODUCER_PROFILE if f09 else ULOG_PRODUCER_PROFILE,
-        "native_format_version": F09_NATIVE_FORMAT if f09 else ULOG_NATIVE_FORMAT,
-        "normalization_version": F09_NORMALIZATION_VERSION
-        if f09
-        else ULOG_NORMALIZATION_VERSION,
+        "firmware_commit": ULOG_FIRMWARE if registered is None else registered.firmware,
+        "producer_profile": ULOG_PRODUCER_PROFILE
+        if registered is None
+        else registered.battery_producer_profile,
+        "native_format_version": ULOG_NATIVE_FORMAT
+        if registered is None
+        else registered.battery_native_format,
+        "normalization_version": ULOG_NORMALIZATION_VERSION
+        if registered is None
+        else registered.battery_normalization,
         "semantic_projection_version": ULOG_SEMANTIC_PROJECTION,
         "timestamp_kind": "publication",
     }
     for field, expected in versions.items():
         if getattr(manifest, field) != expected:
             raise InvalidInput("unsupported_schema", field)
-    if f09 and (
+    if registered is not None and (
         manifest.source_type != "ulog" or manifest.source_stream != "battery_status:0"
     ):
         raise InvalidInput("unsupported_schema", "source_stream")

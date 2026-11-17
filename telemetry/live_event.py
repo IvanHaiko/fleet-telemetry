@@ -1,11 +1,17 @@
-"""PX4 SITL live input events: position, battery summary and mode state.
+"""Live MAVLink input events: position, battery summary and mode state.
 
-A position is a timed measurement with the ADR-0045 identity: the declared
-boot session, system and component IDs and the native boot milliseconds, with
-an unverified clock basis. A battery summary (SYS_STATUS) or state (HEARTBEAT)
-has no measurement time and no measurement identity; its key identifies one
-receipt by gateway epoch and capture sequence. Receipt time is delivery
-metadata and never becomes measurement time or identity.
+Two source kinds share the gateway. A PX4 SITL source (`px4-live-event-v1`)
+keeps the ADR-0045 position identity: the declared boot session, system and
+component IDs and the native boot milliseconds, with an unverified clock
+basis. A recorded flight replayed as a virtual vehicle (ADR-0060,
+`mavlink-vehicle-event-v1`) derives its position identity from the original
+file's checksum and the boot milliseconds only: its system ID is a session
+assignment, so a file replayed again under any ID yields the same identities.
+
+A battery summary (SYS_STATUS) or state (HEARTBEAT) has no measurement time
+and no measurement identity; its key identifies one receipt by gateway epoch
+and capture sequence. Receipt time is delivery metadata and never becomes
+measurement time or identity.
 """
 
 from __future__ import annotations
@@ -27,6 +33,13 @@ from telemetry.mavlink_position import native_position, position_identity
 type Document = dict[str, object]
 
 EVENT_PROFILE = "px4-live-event-v1"
+REPLAY_PROFILE = "mavlink-vehicle-event-v1"
+REPLAY_KIND = "ulog-replay"
+REPLAY_MAPPING_V2 = "ulog-replay-plan-v2"
+MAV_STATE_UNINIT = 0
+# What a replay player could derive from its file (ADR-0060); a field marked
+# false arrives as zero or a MAVLink sentinel and is never shown as a value.
+AVAILABLE = ("relative_alt", "velocity", "battery", "armed", "mode")
 MESSAGES = {
     "GLOBAL_POSITION_INT": "position",
     "SYS_STATUS": "battery",
@@ -37,6 +50,8 @@ MAX_EVENT_BYTES = 4096
 PX4_AUTOPILOT = 12
 _NAME = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _EPOCH = re.compile(r"[0-9a-f]{32}")
+_SOURCE_ID = re.compile(r"sha256:[0-9a-f]{64}")
+_POSITION_TOPICS = ("vehicle_global_position", "vehicle_gps_position", "sensor_gps")
 _EVENT_KEYS = {
     "profile",
     "run_id",
@@ -71,7 +86,9 @@ def epoch_value(value: object) -> str:
 
 
 def source_scope(value: Mapping[str, object]) -> Document:
-    """The one configured source; IDs are filters, not proof of the producer."""
+    """One declared source; IDs are filters, not proof of the producer."""
+    if value.get("kind") == REPLAY_KIND:
+        return replay_scope(value)
     require_keys(value, {"kind", "vehicle", "boot_session", "system", "component"})
     if value["kind"] != "px4-sitl":
         raise ValueError("live_event_source_kind")
@@ -82,6 +99,81 @@ def source_scope(value: Mapping[str, object]) -> Document:
         "system": _bounded(value["system"], 1, 255),
         "component": _bounded(value["component"], 1, 255),
     }
+
+
+def replay_scope(value: Mapping[str, object]) -> Document:
+    """A recorded file as a virtual vehicle, with what the player could map."""
+    mapping: Document = {}
+    if "mapping_version" in value:
+        if value["mapping_version"] != REPLAY_MAPPING_V2:
+            raise ValueError("live_event_replay_mapping")
+        first = value.get("velocity_from_boot_ms")
+        mapping = {
+            "mapping_version": REPLAY_MAPPING_V2,
+            "velocity_from_boot_ms": None
+            if first is None
+            else _bounded(first, 0, 2**32 - 1),
+        }
+    require_keys(
+        value,
+        {
+            "kind",
+            "vehicle",
+            "label",
+            "source_id",
+            "firmware",
+            "position_topic",
+            "system",
+            "component",
+            "available",
+            *mapping,
+        },
+    )
+    source_id = value["source_id"]
+    if not isinstance(source_id, str) or _SOURCE_ID.fullmatch(source_id) is None:
+        raise ValueError("live_event_source_id")
+    digest = source_id.removeprefix("sha256:")
+    if value["vehicle"] != f"ulog-{digest[:16]}" or value["label"] != (
+        "ULog " + digest[:8]
+    ):
+        raise ValueError("live_event_replay_names")
+    firmware = value["firmware"]
+    if firmware is not None and (
+        not isinstance(firmware, str) or not re.fullmatch(r"[0-9a-f]{1,64}", firmware)
+    ):
+        raise ValueError("live_event_firmware")
+    topic = value["position_topic"]
+    if topic is not None and topic not in _POSITION_TOPICS:
+        raise ValueError("live_event_position_topic")
+    available = object_value(value["available"])
+    require_keys(available, set(AVAILABLE))
+    if not all(type(available[name]) is bool for name in AVAILABLE):
+        raise ValueError("live_event_available")
+    if mapping and available["velocity"] != (
+        mapping["velocity_from_boot_ms"] is not None
+    ):
+        raise ValueError("live_event_velocity_availability")
+    return {
+        "kind": REPLAY_KIND,
+        "vehicle": value["vehicle"],
+        "label": value["label"],
+        "source_id": source_id,
+        "firmware": firmware,
+        "position_topic": topic,
+        # System 1 stays for a physical or simulated vehicle.
+        "system": _bounded(value["system"], 2, 250),
+        "component": _bounded(value["component"], 1, 255),
+        "available": {name: available[name] for name in AVAILABLE},
+        **mapping,
+    }
+
+
+def replay_position_identity(source_id: str, boot_ms: int) -> str:
+    """File checksum and native boot milliseconds; never the system ID."""
+    if _SOURCE_ID.fullmatch(source_id) is None or not 0 <= boot_ms < 2**32:
+        raise ValueError("replay_identity_scope")
+    text = f"{REPLAY_PROFILE}:position:{source_id}:{boot_ms}"
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
 def native_values(message: str, data: Mapping[str, object]) -> Document:
@@ -128,18 +220,23 @@ def make_event(
     native = native_values(message, data)
     stream = MESSAGES[message]
     boot = native["time_boot_ms"] if stream == "position" else None
-    identity = (
-        None
-        if boot is None
-        else position_identity(
+    replay = scope["kind"] == REPLAY_KIND
+    identity: str | None
+    if boot is None:
+        identity = None
+    elif replay:
+        identity = replay_position_identity(
+            string_value(scope["source_id"]), integer_value(boot)
+        )
+    else:
+        identity = position_identity(
             string_value(scope["boot_session"]),
             integer_value(scope["system"]),
             integer_value(scope["component"]),
             integer_value(boot),
         )
-    )
     event: Document = {
-        "profile": EVENT_PROFILE,
+        "profile": REPLAY_PROFILE if replay else EVENT_PROFILE,
         "run_id": _name(run_id),
         "source": scope,
         "stream": stream,

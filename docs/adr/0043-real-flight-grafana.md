@@ -2,7 +2,7 @@
 
 ## Combined inspection continuation, 2026-11-04
 
-The authorized [source-to-state priority](../roadmap.md#active-product-goal-2026-11-04)
+The authorized [source-to-state priority](../roadmap-history.md#active-product-goal-2026-11-04)
 starts with [one F09 preparation command](../guides/recording-connection.md) and a
 combined values/status/age panel in the existing Grafana. Reuse pinned adapters
 and existing tables; retain distinct battery/state uncertainty rules. A separate

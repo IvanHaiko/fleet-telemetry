@@ -19,13 +19,19 @@ uv sync --frozen
 uv run --no-sync python scripts/check-m1.py --profile synthetic
 ```
 
-The check runner verifies the lock, synchronizes the chosen profile, runs Ruff
+The check runner first checks the 500-line module limit, then verifies the
+lock, synchronizes the chosen profile, runs Ruff
 lint and format checks over the whole repository, strict mypy over the library
 and root tests, and the root test suite, then converts, verifies and reads a fresh
 synthetic run. Pass `--profile ulog` to include the binary reader, or `--offline`
 when all locked packages are already cached. The synthetic profile deliberately
 omits optional parser/client packages; it must not reuse a mixed environment
 without synchronization.
+
+To reproduce the hosted checks on the current operating system, run both
+`python scripts/check-m1.py --profile synthetic` and
+`python scripts/check-m1.py --profile ulog`. Run them in sequence when
+sharing a checkout because each profile synchronizes the same `.venv`.
 
 For a small change, reuse focused checks in the existing environment:
 
