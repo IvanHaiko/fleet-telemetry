@@ -134,6 +134,7 @@ class SQL:
         self.physical: list[str] = []
         self.calls: list[list[int]] = []  # offsets of every confirmed write
         self.statuses: list[str] = []
+        self.source_reports: list[dict[str, object]] = []
 
     def write_facts(self, outputs: list[dict[str, object]]) -> None:
         self.physical.extend(str(output["id"]) for output in outputs)
@@ -150,6 +151,9 @@ class SQL:
 
     def progress(self, status: str, archived: int, logical: int, total: int) -> None:
         self.statuses.append(status)
+
+    def source_progress(self, row: dict[str, object]) -> None:
+        self.source_reports.append(row)
 
 
 def messages() -> list[dict[str, object]]:
@@ -257,6 +261,8 @@ def test_restart_after_sql_ack_before_cursor_keeps_one_logical_result(
     assert complete["status"] == "completed"
     assert complete["logical_facts"] == OUTPUTS
     assert sql.statuses[-1] == "completed"
+    assert sql.source_reports[-1]["explanation"] == "completed"
+    assert sql.source_reports[-1]["serving_taken"] == OUTPUTS
     # Replayed outputs matched the evidence files already on disk, which were
     # compared and kept rather than replaced.
     after = {p.name: p.read_bytes() for p in (tmp_path / "outputs").iterdir()}
