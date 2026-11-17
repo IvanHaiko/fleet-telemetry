@@ -9,7 +9,6 @@ from runtime.flight_analytics.stream_contract import (
     _RUN,
     MAX_BYTES,
     MAX_EVENTS,
-    SOURCE_BYTES,
     Document,
     _check_reference,
     _integer,
@@ -34,8 +33,8 @@ from telemetry.recording_stream import (
     STREAMS,
     make_event,
 )
+from telemetry.recordings import RECORDINGS, recording
 from telemetry_reader import read_battery_event
-from ulog_integrity import F09_SOURCE_ID
 
 
 def _verify_prepared(
@@ -45,24 +44,17 @@ def _verify_prepared(
 ]:
     """Read bounded snapshots and reconcile every retained inspection section."""
     # Imports stay local: pure timeline/readback do not require the ULog parser.
-    from runtime.flight_analytics.gps import (
-        FIRMWARE,
-        GPS_DEFINITION,
-    )
-    from runtime.flight_analytics.recording import PROFILE, combine
-    from runtime.flight_analytics.state import (
-        COUNTS,
-        DEFINITIONS,
-        FIELDS,
-        read_prepared,
-    )
+    from runtime.flight_analytics.recording import combine
+    from runtime.flight_analytics.state import FIELDS, read_prepared
     from runtime.flight_analytics.state_time import source_gaps
 
     inventory: Document = {}
-    source_body = _read(source, SOURCE_BYTES)
-    if len(source_body) != SOURCE_BYTES or (
-        "sha256:" + hashlib.sha256(source_body).hexdigest() != F09_SOURCE_ID
-    ):
+    source_body = _read(source, max(item.source_bytes for item in RECORDINGS.values()))
+    try:
+        registered = recording("sha256:" + hashlib.sha256(source_body).hexdigest())
+    except ValueError:
+        raise ValueError("stream_original_bytes") from None
+    if len(source_body) != registered.source_bytes:
         raise ValueError("stream_original_bytes")
     inventory["source.ulog"] = _reference(source_body)
     del source_body
@@ -85,15 +77,15 @@ def _verify_prepared(
     gps = _rows(gps_body, 25_000)
     states = _rows(state_body, 10_000)
     # Existing helper validates the complete state projection and pinned metadata.
-    if not _same(read_prepared(_safe_path(prepared / "state")), states):
+    if not _same(read_prepared(_safe_path(prepared / "state"), registered), states):
         raise ValueError("stream_state_changed")
     expected_gps: Document = {
-        "profile": "f09-gps-research-v1",
-        "source_id": F09_SOURCE_ID,
-        "firmware": FIRMWARE,
-        "gps_definition_sha256": GPS_DEFINITION,
+        "profile": registered.gps_profile,
+        "source_id": registered.source_id,
+        "firmware": registered.firmware,
+        "gps_definition_sha256": registered.gps_definition,
         "stream": STREAMS[3],
-        "records": 21_054,
+        "records": registered.gps_records,
         "valid_positions": sum(row.get("latitude_deg") is not None for row in gps),
         "valid_ground_speed": sum(
             row.get("ground_speed_m_s") is not None for row in gps
@@ -103,10 +95,14 @@ def _verify_prepared(
             "boot-relative; GPS UTC is not a proven sample-time mapping"
         ),
         "privacy": "restricted",
-        "scope": "exact F09 source; parser/framing agreement only",
+        "scope": f"exact {registered.label} source; parser/framing agreement only",
         "rows_sha256": hashlib.sha256(gps_body).hexdigest(),
     }
-    if len(gps) != 21_054:
+    if registered.gps_layout == "scaled_integer":
+        expected_gps["unit_mapping"] = (
+            "lat/lon 1e-7 deg to deg; alt mm to m; no sample time"
+        )
+    if len(gps) != registered.gps_records:
         raise ValueError("stream_gps_count")
     root = _safe_path(prepared / "battery")
     deliveries = list(root.iterdir())
@@ -131,13 +127,13 @@ def _verify_prepared(
     _check_reference(artifacts["rejections.jsonl"], rejections_body, prefixed=True)
     expected_run: Document = {
         "run_manifest_version": "bounded-run-v1",
-        "pipeline_version": "bounded-converter-f09-research-v1",
+        "pipeline_version": registered.battery_pipeline,
         "dataset_run_id": delivery,
-        "source_log_id": F09_SOURCE_ID,
-        "source_bytes": SOURCE_BYTES,
+        "source_log_id": registered.source_id,
+        "source_bytes": registered.source_bytes,
         "source_type": "ulog",
         "source_stream": STREAMS[0],
-        "normalization_version": "ulog-battery-f09-research-v1",
+        "normalization_version": registered.battery_normalization,
         "schema_version": "1.0.0",
         "semantic_projection_version": "ulog-battery-semantic-v1",
         "semantic_digest_version": "bounded-semantic-digest-v1",
@@ -161,8 +157,8 @@ def _verify_prepared(
     manifest_id = string_value(run["source_manifest_id"])
     accepted_ordinals = []
     for row in battery:
-        # Frozen A validates complete F09 payload semantics and identity.
-        make_event(STREAMS[0], row, delivery)
+        # Frozen A validates complete registered payload semantics and identity.
+        make_event(STREAMS[0], row, delivery, registered.source_id)
         if (
             object_value(row["delivery"])["dataset_run_id"] != delivery
             or object_value(row["provenance"])["source_manifest_id"] != manifest_id
@@ -188,10 +184,14 @@ def _verify_prepared(
             raise ValueError("stream_rejection_scope")
         reasons[string_value(rejection["reason_code"])] += 1
         string_value(rejection["field"])
-        rejected_ordinals.append(_integer(rejection["source_record_index"], 0, 11729))
+        rejected_ordinals.append(
+            _integer(
+                rejection["source_record_index"], 0, registered.battery_records - 1
+            )
+        )
     source_count = len(battery) + len(rejections)
     if (
-        source_count != 11_730
+        source_count != registered.battery_records
         or rejected_ordinals != sorted(set(rejected_ordinals))
         or sorted(accepted_ordinals + rejected_ordinals) != list(range(source_count))
     ):
@@ -219,18 +219,18 @@ def _verify_prepared(
         or run["semantic_sha256"] != semantic_hash
     ):
         raise ValueError("stream_battery_reconciliation")
-    gaps, evidence = source_gaps(_safe_path(source), gps, states)
+    gaps, evidence = source_gaps(_safe_path(source), gps, states, registered)
     dropout = evidence["dropout_count"]
     duration = evidence["dropout_duration_ms"]
     expected_gps.update(dropout_markers=dropout, dropout_duration_ms=duration)
     if not _same(gps_manifest, expected_gps):
         raise ValueError("stream_gps_manifest")
     expected_state: Document = {
-        "profile": "f09-state-research-v1",
-        "source_id": F09_SOURCE_ID,
-        "firmware": FIRMWARE,
-        "definition_sha256": DEFINITIONS,
-        "records": COUNTS,
+        "profile": registered.state_profile,
+        "source_id": registered.source_id,
+        "firmware": registered.firmware,
+        "definition_sha256": registered.state_definition_map,
+        "records": registered.state_counts,
         "rows_sha256": hashlib.sha256(state_body).hexdigest(),
         "dropout_markers": dropout,
         "dropout_duration_ms": duration,
@@ -249,7 +249,9 @@ def _verify_prepared(
         if event["source_type"] != "ulog":
             raise ValueError("stream_battery_profile")
         typed_battery.append(event)
-    expected_rows = combine(gps, states, typed_battery, source_count, gaps, age)
+    expected_rows = combine(
+        gps, states, typed_battery, source_count, gaps, age, registered
+    )
     inspection = artifact("inspection.jsonl")
     rows = _rows(inspection, 25_000)
     if not _same(rows, expected_rows):
@@ -264,11 +266,11 @@ def _verify_prepared(
             status = string_value(object_value(selected[stream])["status"])
             statuses[stream][status] += 1
     expected_report: Document = {
-        "profile": PROFILE,
+        "profile": registered.name("recording-inspection-v1"),
         "status": "completed_with_quality_limits",
         "privacy": "restricted",
-        "source_id": F09_SOURCE_ID,
-        "vehicle_id": "f09-research-vehicle",
+        "source_id": registered.source_id,
+        "vehicle_id": registered.vehicle_id,
         "inspection_records": len(rows),
         "inspection_sha256": hashlib.sha256(inspection).hexdigest(),
         "max_age_us": age,

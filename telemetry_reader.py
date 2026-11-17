@@ -157,13 +157,15 @@ def read_battery_event(data: bytes) -> BatteryEvent:
     if event["schema_version"] != "1.0.0" or event["event_type"] != "telemetry.battery":
         raise EnvelopeError("unsupported_schema", "envelope")
     version = event["normalization_version"]
-    if version not in ("battery-v1", "ulog-battery-v1", "ulog-battery-f09-research-v1"):
-        raise EnvelopeError("unsupported_normalization", "normalization_version")
-    if version == "ulog-battery-f09-research-v1":
-        from ulog_integrity import F09_SOURCE_ID
+    from telemetry.recordings import RECORDINGS
 
+    research = {item.battery_normalization: item for item in RECORDINGS.values()}
+    if version not in ("battery-v1", "ulog-battery-v1", *research):
+        raise EnvelopeError("unsupported_normalization", "normalization_version")
+    if version in research:
+        registered = research[cast(str, version)]
         if (
-            event["source_log_id"] != F09_SOURCE_ID
+            event["source_log_id"] != registered.source_id
             or event["source_type"] != "ulog"
             or event["source_stream"] != "battery_status:0"
         ):

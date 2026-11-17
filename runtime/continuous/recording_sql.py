@@ -25,7 +25,7 @@ from telemetry.conversion_contract import (
 )
 from telemetry.recording_output import MAX_EVENTS
 from telemetry.recording_stream import event_bytes, make_event
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import recording
 
 type Document = dict[str, object]
 
@@ -211,14 +211,18 @@ def _project(output: Document) -> Document:
             "inspection",
         },
     )
-    if fact["profile"] != "f09-recording-fact-v1" or fact["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = recording(fact["source_id"])
+    except ValueError:
+        raise ValueError("recording_sql_fact_profile") from None
+    if fact["profile"] != registered.name("recording-fact-v1"):
         raise ValueError("recording_sql_fact_profile")
     run = _text(fact["run_id"], r"[A-Za-z0-9._-]{1,128}")
     stamp = _integer(fact["native_timestamp_us"], 2**64)
     inspection = object_value(fact["inspection"])
     require_keys(inspection, {"gps", "battery", "states"})
     gps = object_value(inspection["gps"])
-    event = make_event("vehicle_gps_position:0", gps, run)
+    event = make_event("vehicle_gps_position:0", gps, run, registered.source_id)
     if (
         fact["measurement_id"] != event["measurement_id"]
         or stamp != event["native_timestamp_us"]

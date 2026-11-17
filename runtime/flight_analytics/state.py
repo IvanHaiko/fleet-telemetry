@@ -1,4 +1,4 @@
-"""Exact-file F09 state research projection; no flight-phase inference."""
+"""Exact-file state research projection for registered recordings; no phases."""
 
 import contextlib
 import hashlib
@@ -10,20 +10,14 @@ from itertools import pairwise
 from pathlib import Path
 
 from telemetry.conversion_contract import integer_value, json_object, require_keys
-from ulog_integrity import F09_SOURCE_ID, ULogExpectation, inspect_ulog
+from telemetry.recordings import F09, Recording
+from ulog_integrity import ULogExpectation, inspect_ulog
 
-PROFILE = "f09-state-research-v1"
-SOURCE_BYTES = 122_463_132
-FIRMWARE = "9a2a8d4d3cf3bc74956337d8da8d506073684be0"
-DEFINITIONS = {
-    "vehicle_land_detected": (
-        "27a0f6bb53a636b60bd86e021e3db416a7cc6505701a6285f2bc793fc76cb687"
-    ),
-    "vehicle_status": (
-        "1831131423c63fe4eb3fc837cc6f4cf5aed73a01f475c6e4034aaec6044d26dd"
-    ),
-}
-COUNTS = {"vehicle_land_detected": 2337, "vehicle_status": 4644}
+PROFILE = F09.state_profile
+SOURCE_BYTES = F09.source_bytes
+FIRMWARE = F09.firmware
+DEFINITIONS = F09.state_definition_map
+COUNTS = F09.state_counts
 FIELDS = {
     "vehicle_land_detected": {
         "timestamp": "uint64",
@@ -50,7 +44,9 @@ MAX_ROWS = 10_000
 MAX_BYTES = 8_000_000
 
 
-def project(stream: str, ordinal: int, native: dict[str, int]) -> dict[str, object]:
+def project(
+    stream: str, ordinal: int, native: dict[str, int], recording: Recording = F09
+) -> dict[str, object]:
     """Preserve recorded state codes and native time under a separate identity."""
     if stream not in FIELDS:
         raise ValueError("unsupported_state_stream")
@@ -73,7 +69,7 @@ def project(stream: str, ordinal: int, native: dict[str, int]) -> dict[str, obje
         if not valid:
             raise ValueError("state_value")
     identity = hashlib.sha256(
-        f"{PROFILE}:{F09_SOURCE_ID}:{stream}:0:{ordinal}".encode()
+        f"{recording.state_profile}:{recording.source_id}:{stream}:0:{ordinal}".encode()
     ).hexdigest()
     return {
         "event_id": identity,
@@ -84,7 +80,7 @@ def project(stream: str, ordinal: int, native: dict[str, int]) -> dict[str, obje
     }
 
 
-def validate_rows(rows: list[dict[str, object]]) -> None:
+def validate_rows(rows: list[dict[str, object]], recording: Recording = F09) -> None:
     """Reconstruct each strict row and check per-stream order and coverage."""
     if not rows or len(rows) > MAX_ROWS:
         raise ValueError("state_row_limit")
@@ -106,11 +102,11 @@ def validate_rows(rows: list[dict[str, object]]) -> None:
                 if name != "timestamp"
             }
         )
-        if row != project(stream, ordinal, native):
+        if row != project(stream, ordinal, native, recording):
             raise ValueError("state_row_mismatch")
         counts[stream] += 1
         previous[stream] = timestamp
-    if dict(counts) != COUNTS:
+    if dict(counts) != recording.state_counts:
         raise ValueError("state_source_count")
 
 
@@ -138,7 +134,7 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, object]:
         }
     return {
         "profile": "f09-recording-state-gold-v1",
-        "source_id": F09_SOURCE_ID,
+        "source_id": F09.source_id,
         "state_profile": PROFILE,
         "streams": groups,
         "privacy": "restricted",
@@ -153,7 +149,9 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def prepare(source: Path, output: Path) -> dict[str, object]:
+def prepare(
+    source: Path, output: Path, recording: Recording = F09
+) -> dict[str, object]:
     """Verify registered original bytes before parsing just two selected streams."""
     from pyulog import ULog  # type: ignore[import-untyped]
 
@@ -161,14 +159,17 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
         raise ValueError("output_exists")
     if version("pyulog") != "1.2.2" or version("numpy") != "2.3.5":
         raise ValueError("unsupported_reader_version")
-    if source.stat().st_size != SOURCE_BYTES:
+    if source.stat().st_size != recording.source_bytes:
         raise ValueError("source_size")
     data = source.read_bytes()
-    inspection = inspect_ulog(data, ULogExpectation(F09_SOURCE_ID, SOURCE_BYTES))
-    if inspection.firmware_commit != FIRMWARE:
+    inspection = inspect_ulog(
+        data, ULogExpectation(recording.source_id, recording.source_bytes)
+    )
+    if inspection.firmware_commit != recording.firmware:
         raise ValueError("state_firmware")
     embedded = dict(inspection.definitions)
-    for name, expected in DEFINITIONS.items():
+    counts = recording.state_counts
+    for name, expected in recording.state_definitions:
         definition = embedded.get(name)
         if (
             definition is None
@@ -176,7 +177,7 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
         ):
             raise ValueError("state_definition")
         streams = [s for s in inspection.streams if s.name == name and s.multi_id == 0]
-        if len(streams) != 1 or len(streams[0].record_offsets) != COUNTS[name]:
+        if len(streams) != 1 or len(streams[0].record_offsets) != counts[name]:
             raise ValueError("state_framed_count")
     with (
         contextlib.redirect_stdout(io.StringIO()),
@@ -198,19 +199,20 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
         if any(
             field not in values
             or str(values[field].dtype) != dtype
-            or len(values[field]) != COUNTS[name]
+            or len(values[field]) != counts[name]
             for field, dtype in fields.items()
         ):
             raise ValueError("state_parser_fields")
-        for ordinal in range(COUNTS[name]):
+        for ordinal in range(counts[name]):
             rows.append(
                 project(
                     name,
                     ordinal,
                     {field: int(values[field][ordinal]) for field in fields},
+                    recording,
                 )
             )
-    validate_rows(rows)
+    validate_rows(rows, recording)
     body = b"".join(
         (json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n").encode()
         for row in rows
@@ -218,11 +220,11 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
     if len(body) > MAX_BYTES:
         raise ValueError("state_byte_limit")
     manifest: dict[str, object] = {
-        "profile": PROFILE,
-        "source_id": F09_SOURCE_ID,
-        "firmware": FIRMWARE,
-        "definition_sha256": DEFINITIONS,
-        "records": COUNTS,
+        "profile": recording.state_profile,
+        "source_id": recording.source_id,
+        "firmware": recording.firmware,
+        "definition_sha256": recording.state_definition_map,
+        "records": counts,
         "rows_sha256": hashlib.sha256(body).hexdigest(),
         "dropout_markers": inspection.dropout_count,
         "dropout_duration_ms": inspection.dropout_duration_ms,
@@ -238,7 +240,9 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
     return manifest
 
 
-def read_prepared(directory: Path) -> list[dict[str, object]]:
+def read_prepared(
+    directory: Path, recording: Recording = F09
+) -> list[dict[str, object]]:
     """Check bounded artifacts; a self-written manifest is not authentication."""
     manifest_path = directory / "manifest.json"
     path = directory / "state.jsonl"
@@ -248,14 +252,14 @@ def read_prepared(directory: Path) -> list[dict[str, object]]:
     body = path.read_bytes()
     if (
         len(body) > MAX_BYTES
-        or manifest.get("profile") != PROFILE
-        or manifest.get("source_id") != F09_SOURCE_ID
-        or manifest.get("firmware") != FIRMWARE
-        or manifest.get("definition_sha256") != DEFINITIONS
-        or manifest.get("records") != COUNTS
+        or manifest.get("profile") != recording.state_profile
+        or manifest.get("source_id") != recording.source_id
+        or manifest.get("firmware") != recording.firmware
+        or manifest.get("definition_sha256") != recording.state_definition_map
+        or manifest.get("records") != recording.state_counts
         or manifest.get("rows_sha256") != hashlib.sha256(body).hexdigest()
     ):
         raise ValueError("state_artifact_mismatch")
     rows = [json_object(line) for line in body.splitlines()]
-    validate_rows(rows)
+    validate_rows(rows, recording)
     return rows

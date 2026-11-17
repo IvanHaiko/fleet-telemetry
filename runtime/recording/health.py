@@ -29,6 +29,7 @@ from runtime.recording.profile import (
     WORKER_IMAGE,
     Document,
     Profile,
+    RunFailure,
 )
 
 LAG_WARN = 1000  # deliveries: about one minute of the F09 replay at 1x
@@ -47,6 +48,11 @@ OPERATOR_COUNTERS = {
     "f09": ("accepted", "duplicate", "late", "gps", "rejected"),
     "live": ("accepted", "duplicate", "position", "rejected"),
 }
+
+
+def operator_counters(source: str) -> tuple[str, ...]:
+    """Every registered recording uses the recording lane's counters."""
+    return OPERATOR_COUNTERS["live" if source == "live" else "f09"]
 
 
 def _run(*args: str, timeout: float = 60) -> str | None:
@@ -234,7 +240,7 @@ def flink(run: Profile, source: str) -> Document:
             out["restarts"] = int(cast(str, restarts[0]["value"]))
         wanted = {
             f"{'live' if source == 'live' else 'recording'}_{name}": name
-            for name in OPERATOR_COUNTERS[source]
+            for name in operator_counters(source)
         }
         for vertex in cast(list[Document], run.rest(f"/jobs/{jid}")["vertices"]):
             base = f"/jobs/{jid}/vertices/{vertex['id']}/subtasks/metrics"
@@ -254,7 +260,7 @@ def flink(run: Profile, source: str) -> Document:
 
 
 def admission(run: Profile, source: str, snap: Document) -> Document:
-    """The source's own counts: prepared F09 manifests or the live gateway."""
+    """The source's own counts: prepared recording manifests or the live gateway."""
     if source == "live":
         status = cast(
             Document,
@@ -273,16 +279,17 @@ def admission(run: Profile, source: str, snap: Document) -> Document:
             "refusal",
         )
         return {k: status.get(k) for k in keys} if status else {}
-    from runtime.recording.fault_run import PREPARED
+    from runtime.recording.fault_run import recording_inputs
 
     bundle = run.out / "bundle"
     try:
         manifest = json.loads((bundle / "manifest.json").read_text())
         context = json.loads((bundle / "context.json").read_text())
+        prepared = recording_inputs(source)[0]
         battery = json.loads(
-            next((PREPARED / "battery").glob("*/run-manifest.json")).read_text()
+            next((prepared / "battery").glob("*/run-manifest.json")).read_text()
         )
-    except (OSError, ValueError, StopIteration):
+    except (OSError, ValueError, StopIteration, RunFailure):
         return {}
     counts = cast(Document, battery["counts"])
     return {

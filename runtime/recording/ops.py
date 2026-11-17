@@ -1,4 +1,6 @@
-"""Operate one run of the single-machine recording profile: F09 replay or live SITL.
+"""Operate one run of the single-machine recording profile: replay or live SITL.
+
+A replay source is a registered recording key (f09, f07, f03; ADR-0057).
 
 Commands (run from the repository root on the host):
 
@@ -33,7 +35,7 @@ from pathlib import Path
 from typing import cast
 
 from runtime.recording.evidence import collect, probe, write
-from runtime.recording.fault_run import git, prepare_inputs
+from runtime.recording.fault_run import RECORDING_INPUTS, git, prepare_inputs
 from runtime.recording.health import measure as measure_health
 from runtime.recording.health import sample
 from runtime.recording.health_signals import evaluate as signals
@@ -391,7 +393,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--source", choices=("f09", "live"), default="f09")
+    # A registered recording key replays that recording; "live" is SITL.
+    parser.add_argument("--source", choices=(*RECORDING_INPUTS, "live"), default="f09")
     parser.add_argument("--start-us", type=int)
     parser.add_argument("--end-us", type=int)
     parser.add_argument("--window", type=float, default=20.0)

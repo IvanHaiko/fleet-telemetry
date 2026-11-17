@@ -27,12 +27,12 @@ from telemetry.conversion_contract import (
 from telemetry.jobs import load_job
 from telemetry.local_io import destination, read_bounded
 from telemetry.models import ULogBatteryEnvelope, ULogSourceManifest
+from telemetry.recordings import F09, Recording, recording
 from telemetry.serving_sink import SinkError
 from telemetry_convert import convert_job
 from telemetry_reader import read_battery_event
-from ulog_integrity import F09_SOURCE_ID
 
-PROFILE = "f09-recording-inspection-v1"
+PROFILE = F09.name("recording-inspection-v1")
 MAX_INSPECTION_BYTES = 64 * 1024 * 1024
 
 
@@ -43,6 +43,7 @@ def combine(
     source_count: int,
     gaps: list[Gap],
     max_age_us: int,
+    registered: Recording = F09,
 ) -> list[dict[str, object]]:
     """Combine adapter-checked rows, keeping each association's own quality rule.
 
@@ -64,7 +65,7 @@ def combine(
     for event in battery:
         source_time = event["source_time"]
         if (
-            event["source_log_id"] != F09_SOURCE_ID
+            event["source_log_id"] != registered.source_id
             or source_time["clock_basis"] != "boot_relative"
             or source_time["timestamp_kind"] != "publication"
         ):
@@ -144,19 +145,22 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
     if type(max_age_us) is not int or not 0 <= max_age_us <= 60_000_000:
         raise ValueError("inspection_age_limit")
     job = load_job(job_path)
+    try:
+        registered = recording(job.expectation.source_log_id)
+    except ValueError:
+        raise ValueError("unsupported_recording_profile") from None
     if (
         job.mode != "ulog"
-        or job.expectation.source_log_id != F09_SOURCE_ID
         or not isinstance(job.manifest, ULogSourceManifest)
-        or job.manifest.normalization_version != "ulog-battery-f09-research-v1"
-        or job.manifest.vehicle_id != "f09-research-vehicle"
+        or job.manifest.normalization_version != registered.battery_normalization
+        or job.manifest.vehicle_id != registered.vehicle_id
     ):
         raise ValueError("unsupported_recording_profile")
     # Each adapter rechecks original bytes; no filtered derivative is admitted.
     # The target is fresh, and a partial result never receives a completion seal.
     target.mkdir()
-    gps_manifest = prepare_gps(job.input_path, target / "gps")
-    state_manifest = prepare(job.input_path, target / "state")
+    gps_manifest = prepare_gps(job.input_path, target / "gps", registered)
+    state_manifest = prepare(job.input_path, target / "state", registered)
     (target / "battery").mkdir()
     battery_result = convert_job(
         job_path, target / "battery" / job.delivery.dataset_run_id
@@ -167,7 +171,7 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
         json_object(line)
         for line in read_bounded(target / "gps/gps.jsonl", 32_000_000).splitlines()
     ]
-    states = read_prepared(target / "state")
+    states = read_prepared(target / "state", registered)
     battery: list[ULogBatteryEnvelope] = []
     for line in read_bounded(
         battery_result.output_directory / "events.jsonl", 32_000_000
@@ -176,7 +180,7 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
         if event["source_type"] != "ulog":
             raise ValueError("inspection_battery_profile")
         battery.append(event)
-    gaps, original_evidence = source_gaps(job.input_path, gps, states)
+    gaps, original_evidence = source_gaps(job.input_path, gps, states, registered)
     counts = object_value(battery_result.run_manifest["counts"])
     rows = combine(
         gps,
@@ -185,6 +189,7 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
         integer_value(counts["source_records"]),
         gaps,
         max_age_us,
+        registered,
     )
     digest = hashlib.sha256()
     size = 0
@@ -207,10 +212,10 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
                     string_value(object_value(selected[stream])["status"])
                 ] += 1
     report: dict[str, object] = {
-        "profile": PROFILE,
+        "profile": registered.name("recording-inspection-v1"),
         "status": "completed_with_quality_limits",
         "privacy": "restricted",
-        "source_id": F09_SOURCE_ID,
+        "source_id": registered.source_id,
         "vehicle_id": job.manifest.vehicle_id,
         "inspection_records": len(rows),
         "inspection_sha256": digest.hexdigest(),
@@ -225,7 +230,7 @@ def connect(job_path: Path, output: Path, max_age_us: int) -> dict[str, object]:
         "battery_rejection_reasons": battery_result.run_manifest["rejection_reasons"],
         "original_evidence": original_evidence,
         "limitations": [
-            "exact F09 research source; physical producer unverified",
+            f"exact {registered.label} research source; physical producer unverified",
             "historical recording; no current connection or freshness claim",
             "common native boot clock assumed; no proven physical synchronization",
             "GPS receiver UTC is display time; battery UTC anchor is synthetic",

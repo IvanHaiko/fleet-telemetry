@@ -240,6 +240,13 @@ Work in this order, completing a visible result before broadening the system:
    editing SQL or dashboards per recording. Review its exact firmware, source
    rights, field meanings and time mapping before enabling its adapter. Missing
    streams remain unknown. Preserve distinct recording and vehicle identities.
+   *Status 2026-11-17:* F07 and F03 are registered for the integrated path
+   through one registration table
+   ([ADR-0057](adr/0057-registered-recordings-in-the-integrated-path.md));
+   `ops start --source f07|f03` replays them through Kafka, Flink, the
+   archive, ClickHouse and the shared dashboard. F09 bytes and identities are
+   unchanged. Arbitrary logs remain refused; each file needs its own review
+   and registration.
 3. Connect one actual live MAVLink source through a reviewed gateway and show
    latest values, measurement age and independently observed connection state.
    Demonstrate radio/source silence, gateway restart and recovery without

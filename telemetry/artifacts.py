@@ -27,14 +27,13 @@ from telemetry.models import (
     Rejection,
     SourceManifest,
 )
+from telemetry.recordings import RECORDINGS
 from telemetry.synthetic import normalize_battery
 from telemetry.ulog import normalize_ulog_battery
 from telemetry.validation import (
     integer,
 )
 from ulog_integrity import (
-    F09_MAX_INPUT_BYTES,
-    F09_SOURCE_ID,
     MAX_INPUT_BYTES,
     MAX_RECORDS,
 )
@@ -175,11 +174,8 @@ def _outcomes(
 
 def prepare_run(job: ConversionJob) -> tuple[dict[str, bytes], dict[str, object]]:
     """Regenerate bounded canonical bytes without writing run artifacts."""
-    limit = (
-        F09_MAX_INPUT_BYTES
-        if job.expectation.source_log_id == F09_SOURCE_ID
-        else MAX_INPUT_BYTES
-    )
+    registered = RECORDINGS.get(job.expectation.source_log_id)
+    limit = MAX_INPUT_BYTES if registered is None else registered.max_input_bytes
     data = read_bounded(job.input_path, limit)
     events, rejected, inspection = _outcomes(job, data)
     artifacts = {
@@ -203,9 +199,9 @@ def prepare_run(job: ConversionJob) -> tuple[dict[str, bytes], dict[str, object]
         }
     manifest: dict[str, object] = {
         "run_manifest_version": RUN_VERSION,
-        "pipeline_version": "bounded-converter-f09-research-v1"
-        if job.expectation.source_log_id == F09_SOURCE_ID
-        else PIPELINE_VERSION,
+        "pipeline_version": PIPELINE_VERSION
+        if registered is None
+        else registered.battery_pipeline,
         "dataset_run_id": job.delivery.dataset_run_id,
         "status": "completed_with_rejections" if rejected else "completed",
         "job_sha256": job.config_sha256,

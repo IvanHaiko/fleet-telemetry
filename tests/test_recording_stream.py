@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from hashlib import sha256
 from types import MappingProxyType
 from typing import cast
 
@@ -18,6 +19,7 @@ from telemetry.recording_stream import (
     read_event,
     validate_event,
 )
+from telemetry.recordings import Recording
 from telemetry_reader import read_battery_event
 from ulog_integrity import F09_SOURCE_ID
 
@@ -236,3 +238,38 @@ def test_wire_refuses_duplicates_nonfinite_values_and_excess_bytes() -> None:
     cast(Document, payload["provenance"])["source_manifest_id"] = "x" * 65_536
     with pytest.raises(ValueError, match="size_limit"):
         make_event(STREAMS[0], payload, "r")
+
+
+def test_registered_recordings_keep_separate_identities_and_gps_layouts() -> None:
+    """ADR-0057: identity, vehicle and profile come from the exact registration."""
+    from telemetry.recordings import F03, F07
+
+    def row(recording: Recording, ordinal: int = 0) -> dict[str, object]:
+        result = gps(ordinal)
+        result["event_id"] = sha256(
+            f"{recording.gps_profile}:{recording.source_id}"
+            f":vehicle_gps_position:0:{ordinal}".encode()
+        ).hexdigest()
+        result["vehicle_id"] = recording.vehicle_id
+        return result
+
+    f07 = make_event(STREAMS[3], row(F07), "run", F07.source_id)
+    f09 = make_event(STREAMS[3], gps(), "run")
+    assert f07["profile"] == "f07-recording-event-v1"
+    assert f07["measurement_id"] != f09["measurement_id"]
+    with pytest.raises(ValueError, match="gps_identity"):
+        make_event(STREAMS[3], gps(), "run", F07.source_id)
+    with pytest.raises(ValueError, match="event_profile"):
+        validate_event({**f07, "profile": "f09-recording-event-v1"})
+    with pytest.raises(ValueError, match="event_profile"):
+        validate_event({**f07, "source_id": "sha256:" + "0" * 64})
+
+    # The older SensorGps layout records no sample time; only it may omit one.
+    older = {**row(F03), "native_sample_us": None}
+    assert make_event(STREAMS[3], older, "run", F03.source_id)["payload"] == older
+    with pytest.raises(ValueError, match="gps_sample_time"):
+        make_event(STREAMS[3], row(F03), "run", F03.source_id)
+    with pytest.raises(ValueError, match="event_integer"):
+        make_event(
+            STREAMS[3], {**row(F07), "native_sample_us": None}, "run", F07.source_id
+        )

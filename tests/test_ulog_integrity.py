@@ -15,6 +15,7 @@ from ulog_binary import (
 )
 
 import ulog_integrity
+from telemetry.recordings import F09, RECORDINGS
 from ulog_integrity import (
     MAX_INPUT_BYTES,
     MAX_RECORDS,
@@ -90,7 +91,18 @@ def test_dropout_marks_are_retained_as_loss_evidence() -> None:
     assert len(result.streams[0].record_offsets) == 3
 
 
-@pytest.mark.parametrize("registered_key", ["F09_SOURCE_ID", "F01_SOURCE_ID"])
+def _register(
+    monkeypatch: pytest.MonkeyPatch, registered_key: str, data: bytes
+) -> None:
+    checksum = expectation(data).source_log_id
+    if registered_key == "F01_SOURCE_ID":
+        monkeypatch.setattr(ulog_integrity, registered_key, checksum)
+    else:
+        # A registry entry (ADR-0057) admits the same scoped service frames.
+        monkeypatch.setitem(RECORDINGS, checksum, F09)
+
+
+@pytest.mark.parametrize("registered_key", ["registry", "F01_SOURCE_ID"])
 def test_registered_extended_messages_are_scoped_and_validated(
     monkeypatch: pytest.MonkeyPatch,
     registered_key: str,
@@ -102,13 +114,11 @@ def test_registered_extended_messages_are_scoped_and_validated(
     binary = packet("M", b"\x00" + info("uint8_t[2]", "note", b"ab")[3:])
     data += parameter + binary
     rejected(data, "unsupported_compatibility_flags")
-    monkeypatch.setattr(ulog_integrity, registered_key, expectation(data).source_log_id)
+    _register(monkeypatch, registered_key, data)
     assert len(inspect_ulog(data, expectation(data)).streams[0].record_offsets) == 3
 
     invalid = data.replace(parameter, packet("Q", b"\x00" + parameter[4:]))
-    monkeypatch.setattr(
-        ulog_integrity, registered_key, expectation(invalid).source_log_id
-    )
+    _register(monkeypatch, registered_key, invalid)
     rejected(invalid, "invalid_default_parameter")
 
 

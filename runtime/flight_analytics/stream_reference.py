@@ -1,4 +1,4 @@
-"""Write bounded offline F09 reference facts from a verified stream bundle."""
+"""Write bounded offline reference facts from a verified recording stream bundle."""
 
 import argparse
 import hashlib
@@ -11,9 +11,9 @@ from runtime.flight_analytics.stream_prepare import load_bundle
 from telemetry.conversion_contract import json_line
 from telemetry.local_io import destination, publish_run, read_bounded, run_path
 from telemetry.recording_processing import MAX_AGE_US, process_events
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import F09, recording
 
-PROFILE = "f09-recording-reference-v1"
+PROFILE = F09.name("recording-reference-v1")
 MAX_BYTES = 64 * 1024 * 1024
 
 
@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest_path = run_path(args.bundle / "manifest.json", "manifest.json")
         input_manifest = read_bounded(manifest_path, MAX_BYTES)
         events, context, _ = load_bundle(args.bundle)
+        registered = recording(context["source_id"])
         if read_bounded(manifest_path, MAX_BYTES) != input_manifest:
             raise ValueError("reference_bundle_changed")
         facts = process_events(events, context, max_age_us=args.max_age_us)
@@ -57,8 +58,8 @@ def main(argv: list[str] | None = None) -> int:
                 handle.write(line)
                 digest.update(line)
         manifest: dict[str, object] = {
-            "profile": PROFILE,
-            "source_id": F09_SOURCE_ID,
+            "profile": registered.name("recording-reference-v1"),
+            "source_id": registered.source_id,
             "run_id": context["run_id"],
             "facts": len(facts),
             "max_age_us": args.max_age_us,
@@ -66,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
             "input_bundle_manifest_sha256": hashlib.sha256(input_manifest).hexdigest(),
             "limitations": [
                 "offline ordered file replay; no Kafka/Flink/archive/SQL integration",
-                "exact F09 research source; physical producer unverified",
+                f"exact {registered.label} research source; "
+                "physical producer unverified",
                 "common native boot clock assumed; no synchronization proof",
                 "GPS receiver UTC is display time; battery UTC anchor is synthetic",
                 "gap masks do not establish source completeness or lost duration",

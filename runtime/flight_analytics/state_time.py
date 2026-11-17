@@ -1,4 +1,4 @@
-"""Bounded native-time F09 association with file-neighbor uncertainty masks."""
+"""Bounded native-time association with file-neighbor uncertainty masks."""
 
 import hashlib
 import struct
@@ -7,18 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from runtime.flight_analytics.state import (
-    DEFINITIONS,
-    FIRMWARE,
-    SOURCE_BYTES,
-    validate_rows,
-)
+from runtime.flight_analytics.state import validate_rows
 from telemetry.conversion_contract import integer_value
-from ulog_integrity import F09_SOURCE_ID, ULogExpectation, inspect_ulog
+from telemetry.recordings import F09, Recording
+from ulog_integrity import ULogExpectation, inspect_ulog
 
 VERSION = "f09-gps-state-association-v1"
 GPS_STREAM = "vehicle_gps_position"
-GPS_DEFINITION = "e01e4b9dfff5a5b7332eca486e78460ddacf9bb36363a8cb450c176eda18675e"
+GPS_DEFINITION = F09.gps_definition
 
 
 @dataclass(frozen=True)
@@ -160,17 +156,28 @@ def match_states(
 
 
 def source_gaps(
-    source: Path, gps_rows: list[dict[str, object]], state_rows: list[dict[str, object]]
+    source: Path,
+    gps_rows: list[dict[str, object]],
+    state_rows: list[dict[str, object]],
+    recording: Recording = F09,
 ) -> tuple[list[Gap], dict[str, object]]:
     """Recheck original framing and independently decode all selected native times."""
-    validate_rows(state_rows)
-    if source.stat().st_size != SOURCE_BYTES or len(gps_rows) != 21_054:
+    validate_rows(state_rows, recording)
+    if (
+        source.stat().st_size != recording.source_bytes
+        or len(gps_rows) != recording.gps_records
+    ):
         raise ValueError("association_source_size")
     data = source.read_bytes()
-    inspection = inspect_ulog(data, ULogExpectation(F09_SOURCE_ID, SOURCE_BYTES))
-    if inspection.firmware_commit != FIRMWARE:
+    inspection = inspect_ulog(
+        data, ULogExpectation(recording.source_id, recording.source_bytes)
+    )
+    if inspection.firmware_commit != recording.firmware:
         raise ValueError("association_firmware")
-    definitions = {**DEFINITIONS, GPS_STREAM: GPS_DEFINITION}
+    definitions = {
+        **recording.state_definition_map,
+        GPS_STREAM: recording.gps_definition,
+    }
     embedded = dict(inspection.definitions)
     records: dict[str, list[tuple[int, int]]] = {}
     for name, expected in definitions.items():
@@ -201,7 +208,7 @@ def source_gaps(
                 raise ValueError("association_original_time_mismatch")
             if name == GPS_STREAM:
                 expected_id = hashlib.sha256(
-                    f"f09-gps-research-v1:{F09_SOURCE_ID}:{name}:0:{ordinal}".encode()
+                    f"{recording.gps_profile}:{recording.source_id}:{name}:0:{ordinal}".encode()
                 ).hexdigest()
                 if row.get("event_id") != expected_id:
                     raise ValueError("association_gps_identity")
@@ -222,8 +229,8 @@ def source_gaps(
         raise ValueError("association_dropout_count")
     gaps = bracket_dropouts(markers, records)
     return gaps, {
-        "source_id": F09_SOURCE_ID,
-        "firmware": FIRMWARE,
+        "source_id": recording.source_id,
+        "firmware": recording.firmware,
         "definition_sha256": definitions,
         "original_native_timestamps_match": True,
         "dropout_count": len(markers),

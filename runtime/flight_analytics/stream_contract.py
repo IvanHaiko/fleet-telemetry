@@ -1,4 +1,4 @@
-"""Reuse protected F09 preparation as a bounded, deterministic offline stream.
+"""Reuse protected recording preparation as a bounded, deterministic offline stream.
 
 Source payloads keep their original ordinals. Exact duplicate input rows collapse
 before ordering checks; conflicting identities and non-increasing per-stream
@@ -28,24 +28,33 @@ from telemetry.recording_stream import (
     make_event,
     validate_event,
 )
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import F09, RECORDINGS, Recording, recording
 
 type Document = dict[str, object]
-CONTEXT_PROFILE = "f09-recording-context-v1"
-BUNDLE_PROFILE = "f09-recording-stream-bundle-v1"
+CONTEXT_PROFILE = F09.name("recording-context-v1")
+BUNDLE_PROFILE = F09.name("recording-stream-bundle-v1")
 MAX_EVENTS = 50_000
 MAX_BYTES = 64 * 1024 * 1024
-SOURCE_BYTES = 122_463_132
+SOURCE_BYTES = F09.source_bytes
+_MAX_SOURCE_BYTES = max(item.source_bytes for item in RECORDINGS.values())
 _RUN = re.compile(r"[A-Za-z0-9._-]{1,128}", re.ASCII)
 _HASH = re.compile(r"[0-9a-f]{64}", re.ASCII)
-LIMITATIONS = [
-    "exact F09 research source; protected preparation reused, not source admission",
-    "common native boot clock assumed; no physical synchronization proof",
-    "GPS receiver UTC is display time; battery UTC anchor remains synthetic",
-    "battery rejection intervals are open; state masks are file-neighbor [start,end)",
-    "source loss count unknown; retained original includes unprocessed topics",
-    "offline interval only; no Kafka, Flink, archive or SQL runtime integration",
-]
+
+
+def limitations(registered: Recording) -> list[str]:
+    return [
+        f"exact {registered.label} research source; protected preparation reused, "
+        "not source admission",
+        "common native boot clock assumed; no physical synchronization proof",
+        "GPS receiver UTC is display time; battery UTC anchor remains synthetic",
+        "battery rejection intervals are open; state masks are file-neighbor "
+        "[start,end)",
+        "source loss count unknown; retained original includes unprocessed topics",
+        "offline interval only; no Kafka, Flink, archive or SQL runtime integration",
+    ]
+
+
+LIMITATIONS = limitations(F09)
 _CONTEXT_KEYS = {
     "profile",
     "source_id",
@@ -149,6 +158,7 @@ def timeline(
     battery_source_count: int,
     state_gaps: list[Document],
     max_events: int = MAX_EVENTS,
+    registered: Recording = F09,
 ) -> tuple[list[Document], Document]:
     """Select [start,end), retaining prior association state without rebasing IDs.
 
@@ -165,13 +175,14 @@ def timeline(
     if len(gps) + len(battery) + len(states) > MAX_EVENTS:
         raise ValueError("stream_source_limit")
     gaps = _gaps(state_gaps, 1000)
-    inputs = [make_event(STREAMS[3], row, run_id) for row in gps]
-    inputs.extend(make_event(STREAMS[0], row, run_id) for row in battery)
+    source = registered.source_id
+    inputs = [make_event(STREAMS[3], row, run_id, source) for row in gps]
+    inputs.extend(make_event(STREAMS[0], row, run_id, source) for row in battery)
     for row in states:
         stream = string_value(row.get("stream")) + ":0"
         if stream not in STREAMS[1:3]:
             raise ValueError("stream_state_stream")
-        inputs.append(make_event(stream, row, run_id))
+        inputs.append(make_event(stream, row, run_id, source))
     checked = _ordered_unique(inputs, complete=True)
     accepted = [event for event in checked if event["stream"] == STREAMS[0]]
     if any(integer_value(event["source_ordinal"]) >= count for event in accepted):
@@ -206,8 +217,8 @@ def timeline(
         raise ValueError("stream_event_limit")
     selected.sort(key=event_order)
     context: Document = {
-        "profile": CONTEXT_PROFILE,
-        "source_id": F09_SOURCE_ID,
+        "profile": registered.name("recording-context-v1"),
+        "source_id": source,
         "run_id": run_id,
         "start_us": start_us,
         "end_us": end_us,
@@ -236,7 +247,7 @@ def _reference(body: bytes) -> Document:
 def _check_reference(value: object, body: bytes, *, prefixed: bool = False) -> None:
     ref = object_value(value)
     require_keys(ref, {"bytes", "sha256"})
-    _integer(ref["bytes"], 0, max(SOURCE_BYTES, MAX_BYTES))
+    _integer(ref["bytes"], 0, max(_MAX_SOURCE_BYTES, MAX_BYTES))
     expected = _reference(body)
     if prefixed:
         expected["sha256"] = "sha256:" + string_value(expected["sha256"])
@@ -283,7 +294,11 @@ def _limitations(value: object) -> None:
 def _validate_context(context: Document) -> list[Document]:
     require_keys(context, _CONTEXT_KEYS)
     run, start, _ = _scope(context["run_id"], context["start_us"], context["end_us"])
-    if context["profile"] != CONTEXT_PROFILE or context["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = recording(context["source_id"])
+    except ValueError:
+        raise ValueError("stream_context_profile") from None
+    if context["profile"] != registered.name("recording-context-v1"):
         raise ValueError("stream_context_profile")
     count = _integer(context["battery_source_count"], 0, 100_000)
     _gaps(context["battery_gaps"], min(count, MAX_EVENTS))
@@ -297,6 +312,7 @@ def _validate_context(context: Document) -> list[Document]:
         order = event_order(event)
         if (
             event["run_id"] != run
+            or event["source_id"] != registered.source_id
             or stream not in STREAMS[:3]
             or stream in seen
             or integer_value(event["native_timestamp_us"]) >= start
@@ -330,13 +346,14 @@ def _validate_inventory(value: object) -> None:
         ref = object_value(value)
         require_keys(ref, {"bytes", "sha256"})
         size = _integer(
-            ref["bytes"], 0, SOURCE_BYTES if name == "source.ulog" else MAX_BYTES
+            ref["bytes"], 0, _MAX_SOURCE_BYTES if name == "source.ulog" else MAX_BYTES
         )
         digest = string_value(ref["sha256"])
         if _HASH.fullmatch(digest) is None:
             raise ValueError("stream_input_digest")
         if name == "source.ulog":
-            if size != SOURCE_BYTES or "sha256:" + digest != F09_SOURCE_ID:
+            registered = RECORDINGS.get("sha256:" + digest)
+            if registered is None or size != registered.source_bytes:
                 raise ValueError("stream_original_reference")
         else:
             total += size

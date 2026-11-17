@@ -31,6 +31,20 @@ F09 replay of one interval (native time, 1x):
 .venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source f09 --start-us 86459069 --end-us 146459069
 ```
 
+Another registered recording, complete
+([ADR-0057](../adr/0057-registered-recordings-in-the-integrated-path.md));
+its verified inspection must exist at the path listed in
+`runtime/recording/fault_run.py`:
+
+```powershell
+.venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source f07 --start-us 0 --end-us 190000000
+.venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source f03 --start-us 0 --end-us 410000000
+```
+
+Every registered recording uses the same dashboard, titled with its label
+(*F07 historical recording* and so on), and the same SQL quality checks. A
+file that is not registered is refused before any service starts.
+
 Live SITL session:
 
 ```powershell

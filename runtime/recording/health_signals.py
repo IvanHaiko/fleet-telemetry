@@ -21,10 +21,10 @@ from runtime.recording.health import (
     LAG_WARN,
     MEMORY_FAIL,
     MEMORY_WARN,
-    OPERATOR_COUNTERS,
     REPEAT_RATIO_WARN,
     STATUS_AGE_FAIL_S,
     STATUS_AGE_WARN_S,
+    operator_counters,
 )
 from runtime.recording.ops_view import _get, _number, age_s
 
@@ -105,7 +105,7 @@ def _admission(source: str, a: Document) -> Document:
 def _dispositions(source: str, flink: Document, complete: bool) -> Document:
     counters = cast(Document | None, flink.get("counters"))
     threshold = "rejected 0 (absent counts only with 0 job restarts)" + (
-        f"; duplicates {DECLARED_REPEATS} at completion" if source == "f09" else ""
+        f"; duplicates {DECLARED_REPEATS} at completion" if source != "live" else ""
     )
     if not counters:
         return _signal(
@@ -116,7 +116,7 @@ def _dispositions(source: str, flink: Document, complete: bool) -> Document:
             UNKNOWN,
         )
     # PyFlink registers a counter at its first increment: absent is not zero.
-    missing = [n for n in OPERATOR_COUNTERS[source] if n not in counters]
+    missing = [n for n in operator_counters(source) if n not in counters]
     value = ", ".join(f"{k} {v}" for k, v in counters.items()) + " (since job start)"
     if missing:
         value += "; not reported: " + ", ".join(missing)
@@ -127,7 +127,9 @@ def _dispositions(source: str, flink: Document, complete: bool) -> Document:
     elif rejected is None and restarts != 0:
         # A rejection fails the job; only zero restarts shows none occurred.
         state = UNKNOWN
-    elif source == "f09" and complete and counters.get("duplicate") != DECLARED_REPEATS:
+    elif (
+        source != "live" and complete and counters.get("duplicate") != DECLARED_REPEATS
+    ):
         state = "warn"  # restored jobs re-count only after their checkpoint
     return _signal(
         "processing_dispositions", "Flink operator counters", threshold, value, state

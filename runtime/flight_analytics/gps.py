@@ -1,4 +1,4 @@
-"""Prepare restricted GPS research rows from the registered F09 source only."""
+"""Prepare restricted GPS research rows from one registered exact recording."""
 
 import argparse
 import contextlib
@@ -12,11 +12,12 @@ from pathlib import Path
 
 from pyulog import ULog  # type: ignore[import-untyped]
 
-from ulog_integrity import F09_SOURCE_ID, ULogExpectation, inspect_ulog
+from telemetry.recordings import F09, Recording
+from ulog_integrity import ULogExpectation, inspect_ulog
 
-SOURCE_BYTES = 122_463_132
-FIRMWARE = "9a2a8d4d3cf3bc74956337d8da8d506073684be0"
-GPS_DEFINITION = "e01e4b9dfff5a5b7332eca486e78460ddacf9bb36363a8cb450c176eda18675e"
+SOURCE_BYTES = F09.source_bytes
+FIRMWARE = F09.firmware
+GPS_DEFINITION = F09.gps_definition
 FIELDS = {
     "timestamp": "uint64",
     "timestamp_sample": "uint64",
@@ -29,6 +30,23 @@ FIELDS = {
     "vel_ned_valid": "int8",
     "fix_type": "uint8",
 }
+# Older SensorGps layout (ADR-0057): int32 1e-7 degrees and millimetres, and no
+# separate sample timestamp. Scaling is exact integer division by a power of ten.
+SCALED_FIELDS = {
+    "timestamp": "uint64",
+    "time_utc_usec": "uint64",
+    "timestamp_time_relative": "int32",
+    "lat": "int32",
+    "lon": "int32",
+    "alt": "int32",
+    "vel_m_s": "float32",
+    "vel_ned_valid": "int8",
+    "fix_type": "uint8",
+}
+
+
+def layout_fields(recording: Recording) -> dict[str, str]:
+    return FIELDS if recording.gps_layout == "degrees" else SCALED_FIELDS
 
 
 def gps_utc_text(microseconds: int) -> str:
@@ -40,22 +58,26 @@ def gps_utc_text(microseconds: int) -> str:
     )
 
 
-def prepare(source: Path, output: Path) -> dict[str, object]:
+def prepare(
+    source: Path, output: Path, recording: Recording = F09
+) -> dict[str, object]:
     """Verify exact bytes and selected stream before writing fresh local output."""
     if output.exists():
         raise ValueError("output_exists")
     if version("pyulog") != "1.2.2" or version("numpy") != "2.3.5":
         raise ValueError("unsupported_reader_version")
-    if source.stat().st_size != SOURCE_BYTES:
+    if source.stat().st_size != recording.source_bytes:
         raise ValueError("source_size")
     data = source.read_bytes()
-    inspection = inspect_ulog(data, ULogExpectation(F09_SOURCE_ID, SOURCE_BYTES))
-    if inspection.firmware_commit != FIRMWARE:
+    inspection = inspect_ulog(
+        data, ULogExpectation(recording.source_id, recording.source_bytes)
+    )
+    if inspection.firmware_commit != recording.firmware:
         raise ValueError("firmware")
     definition = dict(inspection.definitions).get("vehicle_gps_position")
     if (
         definition is None
-        or hashlib.sha256(definition.encode()).hexdigest() != GPS_DEFINITION
+        or hashlib.sha256(definition.encode()).hexdigest() != recording.gps_definition
     ):
         raise ValueError("gps_definition")
     streams = [
@@ -80,31 +102,40 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
     if log.file_corruption or len(datasets) != 1:
         raise ValueError("gps_parser")
     values = datasets[0].data
+    fields = layout_fields(recording)
     if any(
         name not in values or str(values[name].dtype) != kind
-        for name, kind in FIELDS.items()
+        for name, kind in fields.items()
     ):
         raise ValueError("gps_fields")
     n = len(values["timestamp"])
-    if n != len(streams[0].record_offsets) or any(
-        len(values[name]) != n for name in FIELDS
+    if (
+        n != len(streams[0].record_offsets)
+        or n != recording.gps_records
+        or any(len(values[name]) != n for name in fields)
     ):
         raise ValueError("gps_stream_count")
+    scaled = recording.gps_layout == "scaled_integer"
     rows = []
     previous = -1
     valid_positions = valid_speed = gps_utc = 0
     for index in range(n):
         timestamp = int(values["timestamp"][index])
-        sample = int(values["timestamp_sample"][index])
+        sample = None if scaled else int(values["timestamp_sample"][index])
         utc = int(values["time_utc_usec"][index])
         relative = int(values["timestamp_time_relative"][index])
         if timestamp < previous:
             raise ValueError("gps_time_order")
         previous = timestamp
         fix = int(values["fix_type"][index])
-        lat = float(values["latitude_deg"][index])
-        lon = float(values["longitude_deg"][index])
-        alt = float(values["altitude_msl_m"][index])
+        if scaled:
+            lat = int(values["lat"][index]) / 10_000_000
+            lon = int(values["lon"][index]) / 10_000_000
+            alt = int(values["alt"][index]) / 1000
+        else:
+            lat = float(values["latitude_deg"][index])
+            lon = float(values["longitude_deg"][index])
+            alt = float(values["altitude_msl_m"][index])
         speed = float(values["vel_m_s"][index])
         valid_position = (
             fix in (3, 4, 5, 6)
@@ -131,12 +162,13 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
         valid_positions += int(valid_position)
         valid_speed += int(valid_velocity)
         identity = hashlib.sha256(
-            f"f09-gps-research-v1:{F09_SOURCE_ID}:vehicle_gps_position:0:{index}".encode()
+            f"{recording.gps_profile}:{recording.source_id}"
+            f":vehicle_gps_position:0:{index}".encode()
         ).hexdigest()
         rows.append(
             {
                 "event_id": identity,
-                "vehicle_id": "f09-research-vehicle",
+                "vehicle_id": recording.vehicle_id,
                 "source_ordinal": index,
                 "native_timestamp_us": timestamp,
                 "native_sample_us": sample,
@@ -152,10 +184,10 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
     if not rows:
         raise ValueError("gps_empty")
     report: dict[str, object] = {
-        "profile": "f09-gps-research-v1",
-        "source_id": F09_SOURCE_ID,
-        "firmware": FIRMWARE,
-        "gps_definition_sha256": GPS_DEFINITION,
+        "profile": recording.gps_profile,
+        "source_id": recording.source_id,
+        "firmware": recording.firmware,
+        "gps_definition_sha256": recording.gps_definition,
         "stream": "vehicle_gps_position:0",
         "records": n,
         "valid_positions": valid_positions,
@@ -167,8 +199,10 @@ def prepare(source: Path, output: Path) -> dict[str, object]:
             "boot-relative; GPS UTC is not a proven sample-time mapping"
         ),
         "privacy": "restricted",
-        "scope": "exact F09 source; parser/framing agreement only",
+        "scope": f"exact {recording.label} source; parser/framing agreement only",
     }
+    if scaled:
+        report["unit_mapping"] = "lat/lon 1e-7 deg to deg; alt mm to m; no sample time"
     output.mkdir(parents=False)
     with (output / "gps.jsonl").open("x", encoding="utf-8", newline="\n") as stream:
         for row in rows:

@@ -35,6 +35,28 @@ including NULL references/ages for unknown associations. These are separate
 research profiles; canonical battery semantics, physical clock admission and
 broker delivery contracts remain unchanged.
 
+## Registered recording profiles, 2026-11-17
+
+[ADR-0057](adr/0057-registered-recordings-in-the-integrated-path.md) extends
+these profiles to every recording registered in `telemetry/recordings.py`
+(F09, F07, F03). The registration key prefixes every recording-specific name:
+the GPS and state identity recipes (`<key>-gps-research-v1:<source_id>:<stream>:0:<ordinal>`,
+`<key>-state-research-v1:…`), the event, context, fact and reference profiles
+(`<key>-recording-event-v1` and so on) and the battery normalization version
+(`ulog-battery-<key>-research-v1`). With key `f09` the names, identities and
+bytes are those above, unchanged. An envelope whose source ID is not registered,
+or whose profile does not carry that recording's key, is refused.
+
+The GPS payload keeps one shape. A registration with the older `scaled_integer`
+SensorGps layout (F03) converts int32 1e-7 degrees to degrees and int32
+millimetres to metres exactly, and carries `native_sample_us` as null because
+that layout records no sample timestamp; every other registration requires an
+integer sample time. Navigation-state codes are stored as recorded and their
+meaning is firmware-specific; no label or cross-recording comparison is
+defined. The output wrapper `f09-recording-output-v1` and the runtime,
+job and run configuration formats keep their historical names for every
+recording.
+
 ## Preserved evidence and future reuse, 2026-11-10
 
 [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) requires reusable

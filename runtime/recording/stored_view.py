@@ -23,9 +23,15 @@ from runtime.recording.profile import (
     RunFailure,
     require,
 )
+from telemetry.recordings import recording_by_key
 
 VIEW_SERVICES = {"archive", "serving", "grafana"}
 DASHBOARDS = {"f09": "mvp-f09-stream", "live": "live-px4-sitl"}
+
+
+def dashboard_uid(source: str) -> str:
+    """Every registered recording shares the recording dashboard's uid."""
+    return DASHBOARDS["live" if source == "live" else "f09"]
 
 
 def render_dashboards(run_id: str, source: str) -> Path:
@@ -44,7 +50,14 @@ def render_dashboards(run_id: str, source: str) -> Path:
     require(text.count(marker) == 5, "view_dashboard_template")
     target = ROOT / ".local-discovery" / f"recording-view-{run_id}" / "dashboards"
     target.mkdir(parents=True, exist_ok=True)
-    rendered = text.replace(marker, recording_prepare.database_name(run_id))
+    database = recording_prepare.database_name(run_id)
+    rendered = (
+        text.replace(marker, database)
+        if live
+        else recording_prepare.render_dashboard(
+            text, database, recording_by_key(source).label
+        )
+    )
     (target / template.name).write_text(rendered, encoding="utf-8", newline="\n")
     return target.resolve()
 
@@ -91,7 +104,7 @@ def view(run: Profile, plan: Document) -> Document:
     return {
         "run_id": run.run_id,
         "status": "ready",
-        "dashboard": f"http://127.0.0.1:13003/d/{DASHBOARDS[str(plan['source'])]}",
+        "dashboard": f"http://127.0.0.1:13003/d/{dashboard_uid(str(plan['source']))}",
         "rekeyed": result["rekeyed"],
         "points": result["points"],
     }

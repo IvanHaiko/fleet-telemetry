@@ -21,7 +21,6 @@ from telemetry.conversion_contract import (
     string_value,
 )
 from telemetry.recording_processing import (
-    FACT_PROFILE,
     MAX_AGE_US,
 )
 from telemetry.recording_processing import (
@@ -32,12 +31,14 @@ from telemetry.recording_stream import (
     event_bytes,
     make_event,
 )
-from ulog_integrity import F09_SOURCE_ID
+from telemetry.recordings import recording
 
 type Document = dict[str, object]
 
-# One recording lane admits the reviewed preparation cap: the complete F09 flight
-# is 39,758 selected observations plus declared duplicate deliveries.
+# One recording lane admits the reviewed preparation cap: the complete F09 flight,
+# the largest registered recording, is 39,758 selected observations plus declared
+# duplicate deliveries. The output wrapper keeps its historical name for every
+# registered recording; the wrapped fact carries the recording's own profile.
 MAX_EVENTS = PROCESSING_MAX_EVENTS
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 65_536
@@ -168,13 +169,20 @@ def _fact(value: Document) -> Document:
             "inspection",
         },
     )
-    if row["profile"] != FACT_PROFILE or row["source_id"] != F09_SOURCE_ID:
+    try:
+        registered = recording(row["source_id"])
+    except ValueError:
+        raise ValueError("recording_fact_profile") from None
+    if row["profile"] != registered.name("recording-fact-v1"):
         raise ValueError("recording_fact_profile")
     _identifier(row["run_id"])
     inspection = object_value(row["inspection"])
     require_keys(inspection, {"gps", "battery", "states"})
     gps = make_event(
-        STREAMS[-1], object_value(inspection["gps"]), string_value(row["run_id"])
+        STREAMS[-1],
+        object_value(inspection["gps"]),
+        string_value(row["run_id"]),
+        registered.source_id,
     )
     stamp = _integer(row["native_timestamp_us"], 0, (1 << 64) - 1)
     if (
