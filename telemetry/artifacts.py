@@ -27,7 +27,7 @@ from telemetry.models import (
     Rejection,
     SourceManifest,
 )
-from telemetry.recordings import RECORDINGS
+from telemetry.recordings import lookup
 from telemetry.synthetic import normalize_battery
 from telemetry.ulog import normalize_ulog_battery
 from telemetry.validation import (
@@ -174,7 +174,7 @@ def _outcomes(
 
 def prepare_run(job: ConversionJob) -> tuple[dict[str, bytes], dict[str, object]]:
     """Regenerate bounded canonical bytes without writing run artifacts."""
-    registered = RECORDINGS.get(job.expectation.source_log_id)
+    registered = lookup(job.expectation.source_log_id)
     limit = MAX_INPUT_BYTES if registered is None else registered.max_input_bytes
     data = read_bounded(job.input_path, limit)
     events, rejected, inspection = _outcomes(job, data)

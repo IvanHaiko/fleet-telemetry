@@ -1,6 +1,8 @@
 """Operate one run of the single-machine recording profile: replay or live SITL.
 
-A replay source is a registered recording key (f09, f07, f03; ADR-0057).
+A replay source is a registered recording key (f09, f07, f03; ADR-0057) or,
+with `--source-file`, any original a mapping profile admits (ADR-0058); a file
+it refuses stays inspectable with `python -m telemetry.ulog_inventory`.
 
 Commands (run from the repository root on the host):
 
@@ -34,6 +36,7 @@ import time
 from pathlib import Path
 from typing import cast
 
+from runtime.recording.admission import prepare_admitted
 from runtime.recording.evidence import collect, probe, write
 from runtime.recording.fault_run import RECORDING_INPUTS, git, prepare_inputs
 from runtime.recording.health import measure as measure_health
@@ -51,7 +54,10 @@ from runtime.recording.profile import (
     RunFailure,
     require,
 )
+from runtime.recording.stall import explain
+from runtime.recording.stall import render as render_why
 from runtime.recording.stored_view import view
+from telemetry.admission import AdmissionRefused
 
 LIVE_SERVICES = ("live-archive-worker", "live-serving-worker", "live-gateway")
 
@@ -105,7 +111,9 @@ def start(args: argparse.Namespace) -> Document:
     present = {p.name for p in out.iterdir()} if out.exists() else set()
     require(present <= {"criterion.json"} and not private.exists(), "run_scope_exists")
     live = args.source == "live"
-    if not live:
+    admitted = args.source == "ulog"
+    require(admitted == (args.source_file is not None), "source_file")
+    if not live and not admitted:
         require(args.start_us is not None and args.end_us is not None, "interval")
     out.mkdir(exist_ok=True)
     run = Profile(
@@ -122,8 +130,29 @@ def start(args: argparse.Namespace) -> Document:
     if live:
         prepare_live(args.run_id, private)
     else:
+        inputs = None
+        if admitted:
+            decision = prepare_admitted(
+                args.source_file,
+                out / "admission",
+                rights=args.rights,
+                reference=args.reference,
+            )
+            inputs = (out / "admission/inspection", args.source_file.resolve())
+            declared |= {
+                "label": decision["label"],
+                "mapping_profile": decision["mapping_profile"],
+                "source_id": decision["source_id"],
+                "prepared": inputs[0].relative_to(ROOT).as_posix(),
+                "original": str(inputs[1]),
+            }
+            # The whole file unless an interval was given.
+            if args.start_us is None:
+                args.start_us = 0
+            if args.end_us is None:
+                args.end_us = decision["native_end_us"]
         declared |= {"interval_us": [args.start_us, args.end_us]}
-        declared |= prepare_inputs(args, out, private)
+        declared |= prepare_inputs(args, out, private, inputs)
     write(out / "ops.json", declared)
     run.log("ops_declared", source=args.source)
     busy = [
@@ -358,10 +387,31 @@ def verify(args: argparse.Namespace) -> Document:
     }
 
 
-def health_of(run: Profile, plan: Document, current: Document) -> Document:
-    """Observations and signals (ADR-0056); kept whole in the evidence."""
+def health_of(
+    run: Profile,
+    plan: Document,
+    current: Document,
+    previous: Document | None = None,
+    window: float = 0.0,
+) -> Document:
+    """Observations, signals (ADR-0056) and, given two snapshots, why a value
+    stopped updating (ADR-0059); kept whole in the evidence."""
     observed = measure_health(run, plan, current)
-    return {"observed": observed, "signals": signals(current, observed)}
+    health: Document = {"observed": observed, "signals": signals(current, observed)}
+    if previous is not None:
+        health["why"] = explain(previous, current, window)
+    return health
+
+
+WHY_WINDOW_S = 10.0
+
+
+def two_snapshots(
+    run: Profile, window: float = WHY_WINDOW_S
+) -> tuple[Document, Document]:
+    first = snapshot(run)
+    time.sleep(window)
+    return first, snapshot(run)
 
 
 def signal_table(health: Document) -> str:
@@ -372,8 +422,10 @@ def stop_run(run: Profile, plan: Document | None = None) -> Document:
     """Collect evidence, then stop without removing any data."""
     if plan is None:
         plan = cast(Document, json.loads((run.out / "ops.json").read_text()))
-    current = snapshot(run)
-    collected = collect(run, "stop", current, health_of(run, plan, current))
+    previous, current = two_snapshots(run)
+    collected = collect(
+        run, "stop", current, health_of(run, plan, current, previous, WHY_WINDOW_S)
+    )
     observers = run.docker(
         *("ps", "-q", "--filter", f"name=f09-observer-{run.run_id}")
     ).split()
@@ -393,8 +445,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--run-id", required=True)
-    # A registered recording key replays that recording; "live" is SITL.
-    parser.add_argument("--source", choices=(*RECORDING_INPUTS, "live"), default="f09")
+    # A registered recording key replays that recording; "live" is SITL;
+    # "ulog" replays --source-file when a mapping profile admits it.
+    parser.add_argument(
+        "--source", choices=(*RECORDING_INPUTS, "live", "ulog"), default="f09"
+    )
+    parser.add_argument("--source-file", type=Path, help="an original .ulg file")
+    parser.add_argument("--rights", default="", help="licence or permission evidence")
+    parser.add_argument("--reference", default="", help="where the file came from")
     parser.add_argument("--start-us", type=int)
     parser.add_argument("--end-us", type=int)
     parser.add_argument("--window", type=float, default=20.0)
@@ -402,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", default="manual")
     parser.add_argument("--sample", type=float, default=15.0)
     args = parser.parse_args(argv)
+    if args.source_file is not None:
+        args.source = "ulog"
     try:
         if args.command == "start":
             result = start(args)
@@ -413,16 +473,24 @@ def main(argv: list[str] | None = None) -> int:
                 current = snapshot(run)
                 source = str(cast(Document, current["inside"]).get("source"))
                 print(render(current, evaluate(first, current, source), args.window))
+                health = health_of(run, plan, current, first, args.window)
+                print(render_why(cast(Document, health["why"])))
             else:
                 current = first
                 print(render(first, None, 0))
-            print(signal_table(health_of(run, plan, current)))
+                health = health_of(run, plan, current)
+            print(signal_table(health))
             return 0
         elif args.command == "collect":
             run, plan = load(args.run_id)
-            current = snapshot(run)
+            previous, current = two_snapshots(run)
             label = re.sub(r"[^a-z0-9-]", "", args.label)
-            result = collect(run, label, current, health_of(run, plan, current))
+            result = collect(
+                run,
+                label,
+                current,
+                health_of(run, plan, current, previous, WHY_WINDOW_S),
+            )
         elif args.command == "stop":
             result = stop_run(*load(args.run_id))
         elif args.command == "resume":
@@ -433,6 +501,18 @@ def main(argv: list[str] | None = None) -> int:
             result = view(*load(args.run_id))
         else:
             result = verify(args)
+    except AdmissionRefused as refused:
+        # The file stays inspectable; each reason names an unavailable part.
+        print(
+            json.dumps(
+                {
+                    "command": args.command,
+                    "status": "refused",
+                    **{"reasons": refused.reasons},
+                }
+            )
+        )
+        return 2
     except (RunFailure, OSError, ValueError, KeyError) as error:
         category = str(error) if isinstance(error, RunFailure) else type(error).__name__
         print(

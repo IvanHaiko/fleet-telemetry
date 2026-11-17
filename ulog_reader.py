@@ -118,9 +118,9 @@ def _validate_profile(inspection: ULogInspection, manifest: ULogSourceManifest) 
         raise InputIntegrityError("missing_producer_attestation", None)
     if manifest.source_type not in ("synthetic", "ulog"):
         raise InputIntegrityError("unsupported_source_type", None)
-    from telemetry.recordings import RECORDINGS
+    from telemetry.recordings import lookup
 
-    registered = RECORDINGS.get(manifest.source_log_id)
+    registered = lookup(manifest.source_log_id)
     expected_firmware = ULOG_FIRMWARE if registered is None else registered.firmware
     if manifest.firmware_commit != expected_firmware:
         raise InputIntegrityError("unsupported_firmware", None)

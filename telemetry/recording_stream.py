@@ -14,7 +14,7 @@ from hashlib import sha256
 from typing import cast
 
 from telemetry.conversion_contract import json_object
-from telemetry.recordings import F09, Recording, recording
+from telemetry.recordings import F09, Recording, recording, resolve
 from telemetry_reader import read_battery_event
 
 type Document = dict[str, object]
@@ -275,7 +275,7 @@ def validate_event(event: Mapping[str, object]) -> Document:
     """Return an independent strict JSON document; reject inconsistent envelopes."""
     row = _mapping(event, _ENVELOPE)
     try:
-        registered = recording(row["source_id"])
+        registered = resolve(row["source_id"], row["profile"], "recording-event-v1")
     except ValueError:
         raise ValueError("event_profile") from None
     if row["profile"] != registered.name("recording-event-v1"):

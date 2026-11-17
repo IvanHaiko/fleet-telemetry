@@ -33,7 +33,7 @@ from telemetry.recording_stream import (
     STREAMS,
     make_event,
 )
-from telemetry.recordings import RECORDINGS, recording
+from telemetry.recordings import ADMITTED_MAX_INPUT_BYTES, RECORDINGS, recording
 from telemetry_reader import read_battery_event
 
 
@@ -49,7 +49,13 @@ def _verify_prepared(
     from runtime.flight_analytics.state_time import source_gaps
 
     inventory: Document = {}
-    source_body = _read(source, max(item.source_bytes for item in RECORDINGS.values()))
+    source_body = _read(
+        source,
+        max(
+            ADMITTED_MAX_INPUT_BYTES,
+            *(item.source_bytes for item in RECORDINGS.values()),
+        ),
+    )
     try:
         registered = recording("sha256:" + hashlib.sha256(source_body).hexdigest())
     except ValueError:

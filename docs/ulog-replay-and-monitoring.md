@@ -1,6 +1,6 @@
 # Inspecting unfamiliar PX4 recordings and diagnosing stale telemetry
 
-Design proposal for the local recording profile, 2026-11-17. The smallest useful change is an offline answer to “what can I see in this file?” The highest monitoring priority is a separate question that already applies to supported runs: “why has this value stopped updating?”
+Design proposal for the local recording profile, 2026-11-17. *Implemented the same day:* the inventory and mapping-profile admission in [ADR-0058](adr/0058-admission-by-mapping-profile.md), the stall explanation in [ADR-0059](adr/0059-explaining-stalled-values.md); raw streaming (section 3) is not started. The smallest useful change is an offline answer to “what can I see in this file?” The highest monitoring priority is a separate question that already applies to supported runs: “why has this value stopped updating?”
 
 ## Starting point and open MVP results
 

@@ -34,7 +34,7 @@ def dashboard_uid(source: str) -> str:
     return DASHBOARDS["live" if source == "live" else "f09"]
 
 
-def render_dashboards(run_id: str, source: str) -> Path:
+def render_dashboards(run_id: str, source: str, label: str | None = None) -> Path:
     """Render the current dashboard template for a stored run's database.
 
     The run's own rendered copy in its private directory stays untouched; the
@@ -55,7 +55,7 @@ def render_dashboards(run_id: str, source: str) -> Path:
         text.replace(marker, database)
         if live
         else recording_prepare.render_dashboard(
-            text, database, recording_by_key(source).label
+            text, database, label or recording_by_key(source).label
         )
     )
     (target / template.name).write_text(rendered, encoding="utf-8", newline="\n")
@@ -80,7 +80,9 @@ def view(run: Profile, plan: Document) -> Document:
     require(not busy, "profile_busy")
     dashboards = {
         "RECORDING_DASHBOARDS": render_dashboards(
-            run.run_id, str(plan["source"])
+            run.run_id,
+            str(plan["source"]),
+            cast(str, plan["label"]) if plan.get("label") else None,
         ).as_posix()
     }
     run.docker(*run.compose, "up", "-d", "grafana", env=dashboards)

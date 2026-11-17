@@ -29,6 +29,9 @@ repeat a final run or measure capture-to-browser time directly.
    `tests/ulog_binary.py`, holding a custom topic in two instances and no GPS,
    the same command lists both instance counts and their fields without a
    registry edit.
+   *Done 2026-11-17:* `python -m telemetry.ulog_inventory <file>`
+   ([ADR-0058](adr/0058-admission-by-mapping-profile.md)) meets both checks and
+   produced a report for each of the 3,987 distinct local ULog files.
 2. **Explain why a value stopped updating.** `ops status`, `health.json` and
    the *Run health* panel show source mode, last source progress, archive
    progress and last query-visible progress together, each in a clock
@@ -44,7 +47,19 @@ repeat a final run or measure capture-to-browser time directly.
    pauses serving while input and archive advance, then the publisher, and
    reaches the end of file; each phase shows its own explanation. After
    resuming, SQL reconciles with the F09 reference. One live debug session
-   shows the source-silent case. On-demand evaluation stays (ADR-0056);
+   shows the source-silent case.
+   *Status 2026-11-17:* implemented
+   ([ADR-0059](adr/0059-explaining-stalled-values.md)): explicit publisher
+   state and position, `ops status`/`health.json`/dashboard panel, and a drill
+   (`runtime/recording/stall_drill.py`). On the maintainer's instruction the
+   replay drill ran once together with step 3, on an admitted fourth log
+   (`695ad7af…`) instead of F09, and passed: `replay_paused` after 2.4 s,
+   `serving_behind` after 12.6 s, `completed` at the end of the file, and
+   `ops verify` equal to the reference and an archive-only rebuild. The live
+   session showed `source_silent` after 12.4 s and passed `verify`. A false
+   `serving_behind` on its first sample was fixed afterwards without a repeat
+   run. Acceptance is the maintainer's decision.
+   On-demand evaluation stays (ADR-0056);
    unattended alerting waits until someone must respond while nobody watches,
    and then needs its own decision against the ADR-0034 Prometheus path.
 3. **Admit a compatible recording without a per-file registry entry.** Start
@@ -64,6 +79,12 @@ repeat a final run or measure capture-to-browser time directly.
    inspectable with the mapping unavailable; reprocessing F09 reproduces its
    stored reference IDs and content. A real second flight on the same firmware
    needs separate authorization to obtain it and a rights review.
+   *Status 2026-11-17:* mapping profiles implemented
+   ([ADR-0058](adr/0058-admission-by-mapping-profile.md)); the derived F09
+   copy, its unreviewed-firmware variant and the F09 regeneration pass
+   offline. Two already acquired Flight Review logs became admissible after a
+   review of their firmware's message definitions; one of them ran through
+   the integrated path ([ADR-0059](adr/0059-explaining-stalled-values.md#drill-2026-11-17)).
 4. **Raw streaming of all recorded topics, only for a named consumer.** Do not
    build a raw producer until a downstream consumer needs high-rate or custom
    messages during replay. Then write an ADR first that settles, with evidence:

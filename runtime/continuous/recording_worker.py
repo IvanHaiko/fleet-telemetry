@@ -149,6 +149,9 @@ def serve(config: Document, root: Path) -> None:
                 if producer_path.exists()
                 else {}
             )
+            sql.source_progress(
+                why(producer, _status(root / "archive-status.json"), len(gate.rows))
+            )
             if (
                 producer.get("status") == "completed"
                 and len(gate.rows) == len(gate.wires)
@@ -168,6 +171,10 @@ def serve(config: Document, root: Path) -> None:
                 }
                 if highs == next_offsets:
                     sql.progress("completed", len(gate.rows), logical, len(gate.facts))
+                    sql.source_progress(
+                        why(producer, _status(root / "archive-status.json"), -1)
+                        | {"explanation": "completed", "serving_taken": len(gate.rows)}
+                    )
                     immutable(
                         root / "serving-complete.json",
                         json_line(
@@ -190,6 +197,53 @@ def serve(config: Document, root: Path) -> None:
     finally:
         consumer.close()
         reader.close()
+
+
+# Lag in deliveries before a stage is reported behind (health.LAG_WARN).
+BEHIND = 100
+
+
+def _status(path: Path) -> Document:
+    try:
+        return json_object(read_bounded(path, 8192))
+    except (OSError, ValueError):
+        return {}
+
+
+def why(producer: Document, archive: Document, taken: int) -> Document:
+    """The serving worker's own explanation of the last progress (ADR-0059).
+
+    A stopped serving worker writes nothing; the panel then shows an old row,
+    and `ops status` explains from outside (runtime/recording/stall.py).
+    """
+    state = producer.get("status")
+    acknowledged = producer.get("acknowledged")
+    archived = archive.get("input_next")
+    ack = acknowledged if isinstance(acknowledged, int) else None
+    prefix = archived if isinstance(archived, int) else None
+    if prefix is not None and prefix > taken + BEHIND:
+        explanation = "serving_behind"
+    elif ack is not None and prefix is not None and ack > prefix + BEHIND:
+        explanation = "archive_behind"
+    elif state == "paused":
+        explanation = "replay_paused"
+    elif state == "completed":
+        explanation = "replay_ended"
+    elif state == "running":
+        explanation = "advancing"
+    else:
+        explanation = "unknown"
+    position = producer.get("position_native_us")
+    declared = producer.get("declared")
+    return {
+        "explanation": explanation,
+        "source_status": state if isinstance(state, str) else "unknown",
+        "acknowledged": ack if ack is not None else -1,
+        "declared": declared if isinstance(declared, int) else -1,
+        "position_native_us": position if isinstance(position, int) else None,
+        "archive_next": prefix,
+        "serving_taken": taken,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

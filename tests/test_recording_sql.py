@@ -171,20 +171,21 @@ def test_fresh_schema_and_database_scope(
     sql, boundary = store
     sql.initialize()
     statements = [call[1] for call in boundary.calls]
-    assert len(statements) == 5
+    assert len(statements) == 6
     assert statements[0] == "CREATE DATABASE authored_recording"
     assert "ENGINE=MergeTree" in statements[1]
-    assert "SELECT DISTINCT" in statements[3]
-    assert "output_json" in statements[3] and "inspection_json" in statements[3]
-    assert statements[4].startswith("CREATE VIEW authored_recording.points AS ")
-    assert "_json" not in statements[4] and "voltage_v" in statements[4]
+    assert statements[3].startswith("CREATE TABLE authored_recording.source_progress")
+    assert "SELECT DISTINCT" in statements[4]
+    assert "output_json" in statements[4] and "inspection_json" in statements[4]
+    assert statements[5].startswith("CREATE VIEW authored_recording.points AS ")
+    assert "_json" not in statements[5] and "voltage_v" in statements[5]
     assert all(call[0] == sql.admin and call[3] for call in boundary.calls)
     assert not any(
         "IF NOT EXISTS" in statement or "DROP" in statement for statement in statements
     )
     with pytest.raises(ValueError, match="scope_exists"):
         sql.initialize()
-    assert len(boundary.calls) == 6
+    assert len(boundary.calls) == 7
     with pytest.raises(ValueError, match="recording_sql_database"):
         recording_sql.RecordingSQL(
             sql.admin, HttpConfig(8123, "different", "reader", "password")

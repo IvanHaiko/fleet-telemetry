@@ -11,6 +11,7 @@ This module imports nothing from the project, so the low-level integrity
 checker and every adapter can depend on it without cycles.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -173,12 +174,171 @@ F03 = Recording(
 RECORDINGS: dict[str, Recording] = {item.source_id: item for item in (F09, F07, F03)}
 BY_KEY: dict[str, Recording] = {item.key: item for item in RECORDINGS.values()}
 
+# Topics a mapping profile selects, and the capability each one serves.
+SELECTED_TOPICS = (
+    "vehicle_gps_position",
+    "battery_status",
+    "vehicle_land_detected",
+    "vehicle_status",
+)
+# Limits for a file admitted under a mapping profile: those of the largest
+# reviewed original (F09, ADR-0041), never larger.
+ADMITTED_MAX_INPUT_BYTES = F09.max_input_bytes
+ADMITTED_MAX_RECORDS = F09.max_records
+# Per-file counts a validator did not measure itself (see ``resolve``).
+UNMEASURED = -1
+
+
+@dataclass(frozen=True)
+class MappingProfile:
+    """Reviewed meanings for a set of embedded layouts on reviewed firmware.
+
+    A file whose selected topics have exactly these layout digests (each
+    topic's definition with every definition it references) and whose reported
+    firmware is listed here is admitted without a registry entry (ADR-0058).
+    The meanings were reviewed once, for ``reference``; widening ``firmware``
+    needs evidence for units, sentinels, enumerations and clocks.
+    """
+
+    key: str
+    reference: Recording
+    firmware: tuple[str, ...]
+
+    @property
+    def layouts(self) -> dict[str, str]:
+        reference = self.reference
+        return {
+            "vehicle_gps_position": reference.gps_definition,
+            "battery_status": reference.battery_definition.removeprefix("sha256:"),
+            **reference.state_definition_map,
+        }
+
+    def admit(
+        self,
+        source_id: str,
+        *,
+        firmware: str,
+        source_bytes: int,
+        gps_records: int,
+        battery_records: int,
+        state_records: tuple[tuple[str, int], ...],
+        dropout_markers: int,
+    ) -> Recording:
+        """One admitted original: shared reviewed names, its own identity."""
+        if _SOURCE_ID.fullmatch(source_id) is None:
+            raise ValueError("admission_source_id")
+        if firmware and firmware not in self.firmware:
+            raise ValueError("admission_firmware")
+        digest = source_id.removeprefix("sha256:")
+        reference = self.reference
+        return Recording(
+            key=self.key,
+            label="ULog " + digest[:8],
+            source_id=source_id,
+            source_bytes=source_bytes,
+            firmware=firmware,
+            # A pseudonym of the file, not of a vehicle: a firmware mapping
+            # carries no evidence of physical vehicle identity.
+            vehicle_id=f"ulog-{digest[:16]}",
+            battery_definition=reference.battery_definition,
+            gps_definition=reference.gps_definition,
+            state_definitions=reference.state_definitions,
+            gps_records=gps_records,
+            battery_records=battery_records,
+            state_records=state_records,
+            gps_layout=reference.gps_layout,
+            dropout_markers=dropout_markers,
+            max_input_bytes=ADMITTED_MAX_INPUT_BYTES,
+            max_records=ADMITTED_MAX_RECORDS,
+        )
+
+
+# Firmware revisions reviewed for a profile beyond its reference recording's
+# own (ADR-0058): at each listed commit the upstream BatteryStatus, SensorGps
+# and VehicleLandDetected definitions equal the reference's byte for byte, and
+# VehicleStatus differs only in VEHICLE_TYPE constants, a field no mapping reads.
+REVIEWED_FIRMWARE = {
+    "f09": (
+        "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+        "94cb2012792b2ae89f0b147cfee53ee31ae550be",
+    ),
+}
+MAPPING_PROFILES: tuple[MappingProfile, ...] = tuple(
+    MappingProfile(
+        f"px4-{item.key}-v1",
+        item,
+        (item.firmware, *REVIEWED_FIRMWARE.get(item.key, ())),
+    )
+    for item in (F09, F07, F03)
+)
+_SOURCE_ID = re.compile(r"sha256:[0-9a-f]{64}", re.ASCII)
+# Admitted originals known to this process: measured ones (from the file) and
+# identity-only ones resolved from a versioned name (UNMEASURED counts).
+_ADMITTED: dict[str, Recording] = {}
+
+
+def register_admitted(item: Recording) -> Recording:
+    """Make a measured admission resolvable by checksum in this process."""
+    if item.source_id in RECORDINGS or item.key not in _MAPPING_KEYS:
+        raise ValueError("admission_conflict")
+    known = _ADMITTED.get(item.source_id)
+    if known is not None and known.source_bytes != UNMEASURED and known != item:
+        raise ValueError("admission_conflict")
+    _ADMITTED[item.source_id] = item
+    return item
+
+
+_MAPPING_KEYS = {item.key: item for item in MAPPING_PROFILES}
+
+
+def withdraw_admitted(source_id: str) -> None:
+    """Forget an admission whose later checks failed in this process."""
+    _ADMITTED.pop(source_id, None)
+
+
+def lookup(source_id: object) -> Recording | None:
+    """A registered recording, else an admission known to this process."""
+    if not isinstance(source_id, str):
+        return None
+    return RECORDINGS.get(source_id) or _ADMITTED.get(source_id)
+
 
 def recording(source_id: object) -> Recording:
-    """Return the registered recording for an exact checksum, or refuse."""
-    if not isinstance(source_id, str) or source_id not in RECORDINGS:
+    """Return the registered or admitted recording for a checksum, or refuse."""
+    found = lookup(source_id)
+    if found is None:
         raise ValueError("unregistered_recording")
-    return RECORDINGS[source_id]
+    return found
+
+
+def resolve(source_id: object, profile: object, suffix: str) -> Recording:
+    """Resolve an envelope's source from its checksum and versioned name.
+
+    A registered checksum keeps its legacy recipe. Otherwise a name under a
+    mapping profile (``px4-f09-v1-<suffix>``) yields that profile's meanings
+    for this checksum. Admission was decided where the original was read;
+    a downstream validator that never sees the original gets the identity
+    only, with per-file counts UNMEASURED and no firmware, so a count or
+    firmware check fails closed.
+    """
+    found = lookup(source_id)
+    if found is not None:
+        return found
+    if isinstance(source_id, str) and isinstance(profile, str):
+        for item in MAPPING_PROFILES:
+            if profile == f"{item.key}-{suffix}":
+                resolved = item.admit(
+                    source_id,
+                    firmware="",
+                    source_bytes=UNMEASURED,
+                    gps_records=UNMEASURED,
+                    battery_records=UNMEASURED,
+                    state_records=(),
+                    dropout_markers=UNMEASURED,
+                )
+                _ADMITTED.setdefault(source_id, resolved)
+                return _ADMITTED[source_id]
+    raise ValueError("unregistered_recording")
 
 
 def recording_by_key(key: object) -> Recording:
@@ -194,3 +354,15 @@ def by_profile(profile: object, suffix: str) -> Recording:
             if profile == item.name(suffix):
                 return item
     raise ValueError("unregistered_recording_profile")
+
+
+def by_battery_normalization(version: object) -> tuple[Recording | None, bool]:
+    """(registered recording, is a mapping-profile name) for a version string."""
+    if isinstance(version, str):
+        for item in RECORDINGS.values():
+            if version == item.battery_normalization:
+                return item, False
+        for profile in MAPPING_PROFILES:
+            if version == f"ulog-battery-{profile.key}-research-v1":
+                return None, True
+    return None, False

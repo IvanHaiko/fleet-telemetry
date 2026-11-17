@@ -157,15 +157,20 @@ def read_battery_event(data: bytes) -> BatteryEvent:
     if event["schema_version"] != "1.0.0" or event["event_type"] != "telemetry.battery":
         raise EnvelopeError("unsupported_schema", "envelope")
     version = event["normalization_version"]
-    from telemetry.recordings import RECORDINGS
+    from telemetry.recordings import RECORDINGS, by_battery_normalization
 
-    research = {item.battery_normalization: item for item in RECORDINGS.values()}
-    if version not in ("battery-v1", "ulog-battery-v1", *research):
+    registered, mapped = by_battery_normalization(version)
+    if version not in ("battery-v1", "ulog-battery-v1") and not (registered or mapped):
         raise EnvelopeError("unsupported_normalization", "normalization_version")
-    if version in research:
-        registered = research[cast(str, version)]
+    if registered is not None or mapped:
+        # A mapping-profile name never covers a registered checksum, which
+        # keeps its own legacy name (ADR-0058).
         if (
-            event["source_log_id"] != registered.source_id
+            (
+                event["source_log_id"] != registered.source_id
+                if registered is not None
+                else event["source_log_id"] in RECORDINGS
+            )
             or event["source_type"] != "ulog"
             or event["source_stream"] != "battery_status:0"
         ):

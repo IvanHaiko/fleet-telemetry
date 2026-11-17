@@ -104,6 +104,25 @@ def _sql(private: Path, database: str, live: bool) -> Document:
             distinct_inputs=distinct,
             max_input_offset=highest if physical else None,
         )
+        if not live:
+            # The newest query-visible observation on its native clock, and
+            # the serving worker's last SQL progress write on the SQL clock.
+            last = _request(
+                config,
+                "SELECT max(native_timestamp_us), "
+                "(SELECT max(written_ms) FROM "
+                f"{database}.progress), (SELECT argMax(status, written_ms) FROM "
+                f"{database}.progress), toUnixTimestamp64Milli(now64(3)) "
+                f"FROM {database}.facts FORMAT JSONCompactEachRow",
+                b"",
+            )
+            native, written, status, now = json.loads(last)
+            out.update(
+                last_visible_native_us=native if physical else None,
+                progress_written_ms=written or None,
+                progress_status=status or None,
+                sql_clock_ms=now,
+            )
         if live:
             body = _request(
                 config,

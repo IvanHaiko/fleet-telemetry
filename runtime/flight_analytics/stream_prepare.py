@@ -45,6 +45,7 @@ from runtime.flight_analytics.stream_contract import (
     timeline,
 )
 from runtime.flight_analytics.stream_source import _verify_prepared
+from telemetry.admission import admit_original
 from telemetry.conversion_contract import (
     integer_value,
     json_line,
@@ -61,7 +62,7 @@ from telemetry.recording_stream import (
     read_event,
     validate_battery_gaps,
 )
-from telemetry.recordings import recording
+from telemetry.recordings import recording, resolve
 
 __all__ = [
     "_CONTEXT_KEYS",
@@ -187,7 +188,9 @@ def load_bundle(directory: Path) -> tuple[list[Document], Document, Document]:
         manifest["run_id"], manifest["start_us"], manifest["end_us"]
     )
     try:
-        registered = recording(manifest["source_id"])
+        registered = resolve(
+            manifest["source_id"], manifest["profile"], "recording-stream-bundle-v1"
+        )
     except ValueError:
         raise ValueError("stream_bundle_profile") from None
     if manifest["profile"] != registered.name("recording-stream-bundle-v1"):
@@ -301,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-bytes", type=int, default=MAX_BYTES)
     args = parser.parse_args(argv, namespace=_Arguments())
     try:
+        # An unregistered original must be admitted in this process first
+        # (ADR-0058); a registered one returns at once after its checksum.
+        admit_original(args.source)
         report = prepare(
             args.prepared,
             args.source,

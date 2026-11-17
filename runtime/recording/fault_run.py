@@ -79,6 +79,13 @@ def recording_inputs(source: str) -> tuple[Path, Path]:
     return RECORDING_INPUTS[source]
 
 
+def plan_inputs(plan: Document) -> tuple[Path, Path]:
+    """A run's prepared inspection and original: its own for an admitted file."""
+    if plan.get("source") == "ulog":
+        return ROOT / str(plan["prepared"]), Path(str(plan["original"]))
+    return recording_inputs(str(plan["source"]))
+
+
 RECOVERY_DEFINITION = (
     "fault start to the first sample after the resume action at which every "
     "fact acknowledged before the fault is SQL-visible, at least one fact "
@@ -107,7 +114,10 @@ CORRECTNESS = [
 
 def git(*args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True
+        ["git", "-C", str(ROOT), *args],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
     ).stdout
 
 
@@ -124,9 +134,16 @@ def python(*args: str) -> Document:
     return cast(Document, json.loads(lines[-1]))
 
 
-def prepare_inputs(args: argparse.Namespace, out: Path, private: Path) -> Document:
+def prepare_inputs(
+    args: argparse.Namespace,
+    out: Path,
+    private: Path,
+    inputs: tuple[Path, Path] | None = None,
+) -> Document:
     """Fresh bundle, reference and private scope for exactly this interval."""
-    prepared_inputs, original = recording_inputs(getattr(args, "source", "f09"))
+    prepared_inputs, original = inputs or recording_inputs(
+        getattr(args, "source", "f09")
+    )
     python(
         "runtime.flight_analytics.stream_prepare",
         *("--prepared", str(prepared_inputs), "--source", str(original)),

@@ -9,7 +9,7 @@ import struct
 from dataclasses import dataclass, field
 from hashlib import sha256
 
-from telemetry.recordings import F09, RECORDINGS
+from telemetry.recordings import F09, lookup
 
 MAX_INPUT_BYTES = 16 * 1024 * 1024
 MAX_RECORDS = 100_000
@@ -277,7 +277,7 @@ def inspect_ulog(data: bytes, expectation: ULogExpectation) -> ULogInspection:
     """
     if type(data) is not bytes:
         raise InputIntegrityError("invalid_input_type")
-    registered = RECORDINGS.get(expectation.source_log_id)
+    registered = lookup(expectation.source_log_id)
     extended_service_frames = (
         registered is not None or expectation.source_log_id == F01_SOURCE_ID
     )

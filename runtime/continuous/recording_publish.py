@@ -33,6 +33,8 @@ from telemetry.local_io import read_bounded
 
 # One ledger line is about 130 bytes; 50,000 deliveries stay well below this.
 MAX_LEDGER = 16 * 1024 * 1024
+# The status file is rewritten at least this often while the publisher waits.
+HEARTBEAT_S = 1.0
 
 
 def resume_point(
@@ -126,16 +128,30 @@ def publish(config: Document, root: Path) -> None:
     )
     began = time.monotonic() - (resumed_us - first) / 1000000
     count = start
+    heartbeat = time.monotonic()
 
     def status(value: str) -> None:
+        """Explicit publisher state and the last acknowledged source position.
+
+        `paused` and `completed` (end of the declared deliveries) are states,
+        not inferred from silence; the file is rewritten at least every
+        HEARTBEAT_S while waiting, so its age measures the publisher itself.
+        """
+        nonlocal heartbeat
+        last = min(count, len(events)) - 1
         durable_cursor(
             root / "producer-status.json",
             {
                 "status": value,
                 "acknowledged": count,
+                "declared": len(wires),
+                "position_native_us": None
+                if last < 0
+                else integer_value(events[last]["native_timestamp_us"]),
                 "written_ms": time.time_ns() // 1000000,
             },
         )
+        heartbeat = time.monotonic()
 
     def wait_until(target: float) -> None:
         nonlocal began
@@ -152,10 +168,15 @@ def publish(config: Document, root: Path) -> None:
                         not stopped() and time.monotonic() < deadline,
                         "recording_producer_stopped",
                     )
+                    if time.monotonic() - heartbeat >= HEARTBEAT_S:
+                        status("paused")
                     time.sleep(0.05)
                 delta = time.monotonic() - paused
                 began += delta
                 target += delta
+                status("running")
+            elif time.monotonic() - heartbeat >= HEARTBEAT_S:
+                status("running")  # a native-time gap: waiting, not silent
             time.sleep(min(0.01, max(0.0, target - time.monotonic())))
 
     def delivery_callback(

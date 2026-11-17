@@ -28,7 +28,15 @@ from telemetry.recording_stream import (
     make_event,
     validate_event,
 )
-from telemetry.recordings import F09, RECORDINGS, Recording, recording
+from telemetry.recordings import (
+    ADMITTED_MAX_INPUT_BYTES,
+    F09,
+    RECORDINGS,
+    UNMEASURED,
+    Recording,
+    lookup,
+    resolve,
+)
 
 type Document = dict[str, object]
 CONTEXT_PROFILE = F09.name("recording-context-v1")
@@ -36,7 +44,9 @@ BUNDLE_PROFILE = F09.name("recording-stream-bundle-v1")
 MAX_EVENTS = 50_000
 MAX_BYTES = 64 * 1024 * 1024
 SOURCE_BYTES = F09.source_bytes
-_MAX_SOURCE_BYTES = max(item.source_bytes for item in RECORDINGS.values())
+_MAX_SOURCE_BYTES = max(
+    ADMITTED_MAX_INPUT_BYTES, *(item.source_bytes for item in RECORDINGS.values())
+)
 _RUN = re.compile(r"[A-Za-z0-9._-]{1,128}", re.ASCII)
 _HASH = re.compile(r"[0-9a-f]{64}", re.ASCII)
 
@@ -295,7 +305,9 @@ def _validate_context(context: Document) -> list[Document]:
     require_keys(context, _CONTEXT_KEYS)
     run, start, _ = _scope(context["run_id"], context["start_us"], context["end_us"])
     try:
-        registered = recording(context["source_id"])
+        registered = resolve(
+            context["source_id"], context["profile"], "recording-context-v1"
+        )
     except ValueError:
         raise ValueError("stream_context_profile") from None
     if context["profile"] != registered.name("recording-context-v1"):
@@ -352,8 +364,17 @@ def _validate_inventory(value: object) -> None:
         if _HASH.fullmatch(digest) is None:
             raise ValueError("stream_input_digest")
         if name == "source.ulog":
-            registered = RECORDINGS.get("sha256:" + digest)
-            if registered is None or size != registered.source_bytes:
+            # An admitted original resolved from a versioned name alone has
+            # no measured size here; preparation checked it before sealing.
+            registered = lookup("sha256:" + digest)
+            if (
+                registered is None
+                or size != registered.source_bytes
+                and (
+                    registered.source_id in RECORDINGS
+                    or registered.source_bytes != UNMEASURED
+                )
+            ):
                 raise ValueError("stream_original_reference")
         else:
             total += size

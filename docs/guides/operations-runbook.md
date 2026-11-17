@@ -42,8 +42,28 @@ its verified inspection must exist at the path listed in
 ```
 
 Every registered recording uses the same dashboard, titled with its label
-(*F07 historical recording* and so on), and the same SQL quality checks. A
-file that is not registered is refused before any service starts.
+(*F07 historical recording* and so on), and the same SQL quality checks.
+
+Any other original: inspect it first, without services
+([ADR-0058](../adr/0058-admission-by-mapping-profile.md)):
+
+```powershell
+.venv/Scripts/python.exe -m telemetry.ulog_inventory <file.ulg>
+```
+
+The last line says `replay admitted` when a mapping profile covers the file;
+then replay it whole (or pass `--start-us`/`--end-us`). Rights and reference
+are your statement of where the file came from and are kept in
+`admission.json`:
+
+```powershell
+.venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source-file <file.ulg> --rights "<licence evidence>" --reference "<origin>"
+```
+
+A refused file prints one reason per unavailable part, for example
+`battery_status:missing_subscription` or
+`vehicle_gps_position:candidate_unreviewed_firmware`, and nothing starts.
+The dashboard is titled *ULog <first 8 hex digits of the checksum>*.
 
 Live SITL session:
 
@@ -127,6 +147,32 @@ every monitoring signal with its state and value
 ([ADR-0056](../adr/0056-run-health-without-a-monitoring-stack.md)); `status`
 then takes about 25 s. `collect` and `stop` save the same observations and
 signals as `health.json`.
+
+### Why a value stopped updating
+
+With `--window` above 0, `status` adds a *Why* block
+([ADR-0059](../adr/0059-explaining-stalled-values.md)): source state and
+progress (replay: acknowledged of declared deliveries and the native time of
+the last acknowledged event; live: gateway state and receipt age), archived
+prefix, query-visible facts and the age of serving's last SQL progress write,
+with browser delay always `unknown`, and one explanation:
+
+| Explanation | Meaning | Response |
+| --- | --- | --- |
+| `advancing` | query-visible facts grew over the window | none |
+| `completed` | end of file and SQL holds every reference fact | `verify`, then `stop` |
+| `serving_behind` | input and archive advance, SQL does not | is `serving-worker` running? `docker start` it; it continues from its cursor |
+| `archive_behind` | input advances, the archive does not | start `archive-worker` |
+| `replay_paused` | the publisher reports `paused` | remove `/evidence/<run>/state/pause-publisher` in the publisher container |
+| `replay_ended` | the publisher reached the end, later stages still finishing | wait for `completed` |
+| `replay_waiting` | the publisher is current and waits for the next native timestamp | none: a gap in the recording |
+| `source_silent` | live: gateway running and current, no new receipts | check the vehicle or simulator, not the profile |
+| `unknown` | a needed stage is not measured (for example no gateway status) | check that stage's container |
+
+`collect` and `stop` store the same block as `why` in `health.json`. The
+dashboard's *Run health — why values stopped updating* panel shows the serving
+worker's own view with its write time; when that time is older than about
+10 s, serving is behind or stopped and `status` is the authoritative view.
 
 ### Health signals
 

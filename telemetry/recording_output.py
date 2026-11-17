@@ -31,7 +31,7 @@ from telemetry.recording_stream import (
     event_bytes,
     make_event,
 )
-from telemetry.recordings import recording
+from telemetry.recordings import resolve
 
 type Document = dict[str, object]
 
@@ -170,7 +170,7 @@ def _fact(value: Document) -> Document:
         },
     )
     try:
-        registered = recording(row["source_id"])
+        registered = resolve(row["source_id"], row["profile"], "recording-fact-v1")
     except ValueError:
         raise ValueError("recording_fact_profile") from None
     if row["profile"] != registered.name("recording-fact-v1"):

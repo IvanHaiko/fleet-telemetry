@@ -118,7 +118,7 @@ def create_sql(
     database: str,
     grafana_password: str,
     schema: type[RecordingSQL] = RecordingSQL,
-    tables: tuple[str, ...] = ("facts", "progress"),
+    tables: tuple[str, ...] = ("facts", "progress", "source_progress"),
 ) -> Document:
     """Fresh database, INSERT-only writer, readonly reader and Grafana grants."""
     require(

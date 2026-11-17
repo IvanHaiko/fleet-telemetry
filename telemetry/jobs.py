@@ -24,7 +24,7 @@ from telemetry.models import (
     SourceManifest,
     ULogSourceManifest,
 )
-from telemetry.recordings import RECORDINGS
+from telemetry.recordings import lookup
 from telemetry.validation import (
     identifier,
     integer,
@@ -187,7 +187,7 @@ def load_job(path: Path) -> ConversionJob:
     require_keys(source, {"path", "source_log_id", "size_bytes"})
     size = integer_value(source["size_bytes"])
     checksum = string_value(source["source_log_id"])
-    registered = RECORDINGS.get(checksum)
+    registered = lookup(checksum)
     limit = MAX_INPUT_BYTES if registered is None else registered.max_input_bytes
     if not 0 < size <= limit:
         raise ConversionError("invalid_input_size")

@@ -199,7 +199,11 @@ def save_kafka(run: Profile, directory: Path) -> Document:
 
 def git(*args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
+        ["git", "-C", str(ROOT), *args],
+        capture_output=True,
+        # Git writes UTF-8; the Windows locale codec cannot decode every byte.
+        encoding="utf-8",
+        check=True,
     ).stdout
 
 

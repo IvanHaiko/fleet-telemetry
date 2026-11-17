@@ -151,6 +151,7 @@ def test_queries_use_only_frozen_views_with_finite_read_only_budgets() -> None:
             assert re.findall(r"\bFROM\s+(\S+)", query) in (
                 ["${database}.points"],
                 ["${database}.progress"],
+                ["${database}.source_progress"],
             )
             assert re.findall(r"\$\{([^}]+)\}", query) == ["database"]
             limit = re.search(r"\bLIMIT ([1-9][0-9]*) SETTINGS ", query)
@@ -179,6 +180,12 @@ def test_queries_use_only_frozen_views_with_finite_read_only_budgets() -> None:
     assert any(
         sql.startswith("SELECT written_ms,status,input_next,output_count,expected ")
         for sql in progress
+    )
+    # Why values stopped updating: the serving worker's latest view (ADR-0059).
+    assert any(
+        sql.startswith("SELECT written_ms,explanation,source_status,")
+        and "FROM ${database}.source_progress ORDER BY written_ms DESC LIMIT 1 " in sql
+        for sql in queries
     )
     assert any("GROUP BY battery_status" in sql for sql in queries)
     assert any("GROUP BY land_status,vehicle_status_status" in sql for sql in queries)

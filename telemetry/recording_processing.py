@@ -20,7 +20,7 @@ from telemetry.recording_stream import (
     validate_battery_gaps,
     validate_event,
 )
-from telemetry.recordings import F09, Recording, recording
+from telemetry.recordings import F09, Recording, resolve
 
 FACT_PROFILE = F09.name("recording-fact-v1")
 MAX_EVENTS = 50_000
@@ -93,7 +93,9 @@ def _masked(timestamp: int, masks: _Masks) -> bool:
 def _context(value: Mapping[str, object]) -> _Context:
     require_keys(value, _CONTEXT_KEYS)
     try:
-        registered = recording(value["source_id"])
+        registered = resolve(
+            value["source_id"], value["profile"], "recording-context-v1"
+        )
     except ValueError:
         raise ValueError("processing_context_profile") from None
     if value["profile"] != registered.name("recording-context-v1"):

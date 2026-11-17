@@ -131,9 +131,9 @@ def validate_ulog_manifest(manifest: ULogSourceManifest) -> None:
         or re.fullmatch(r"sha256:[0-9a-f]{64}", manifest.source_log_id) is None
     ):
         raise InvalidInput("invalid_manifest", "source_log_id")
-    from telemetry.recordings import RECORDINGS
+    from telemetry.recordings import lookup
 
-    registered = RECORDINGS.get(manifest.source_log_id)
+    registered = lookup(manifest.source_log_id)
     versions = {
         "firmware_commit": ULOG_FIRMWARE if registered is None else registered.firmware,
         "producer_profile": ULOG_PRODUCER_PROFILE

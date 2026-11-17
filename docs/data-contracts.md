@@ -57,6 +57,27 @@ defined. The output wrapper `f09-recording-output-v1` and the runtime,
 job and run configuration formats keep their historical names for every
 recording.
 
+## Mapping-profile recordings, 2026-11-17
+
+[ADR-0058](adr/0058-admission-by-mapping-profile.md) admits an unregistered
+original whose four selected topics have a profile's layout digests and whose
+firmware the profile lists. Every name derives from the profile key instead of
+a registration key: `px4-f09-v1-gps-research-v1:<source_id>:vehicle_gps_position:0:<ordinal>`,
+`px4-f09-v1-recording-event-v1`, `ulog-battery-px4-f09-v1-research-v1` and so
+on. The recipes are unchanged and include the source ID, so two admitted files
+never share a measurement ID, and an admitted file never shares one with a
+registered recording. A registered checksum always keeps its ADR-0057 names.
+The vehicle ID is a file pseudonym, `ulog-<first 16 hex digits of the source
+SHA-256>`, not a vehicle identity. Units, sentinels, enumerations and clocks
+are those reviewed for the profile's reference recording. An envelope under a
+mapping-profile name is resolved from that name; its per-file counts are known
+only where the original was read.
+
+The serving SQL scope adds a `source_progress` table (ADR-0059): write time,
+explanation, publisher state, acknowledged and declared deliveries, native time
+of the last acknowledged event, archived prefix and what serving has taken.
+It holds counts and native times only.
+
 ## Preserved evidence and future reuse, 2026-11-10
 
 [ADR-0048](adr/0048-integrated-mvp-and-evidence-preservation.md) requires reusable

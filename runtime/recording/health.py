@@ -259,9 +259,9 @@ def flink(run: Profile, source: str) -> Document:
     return out
 
 
-def admission(run: Profile, source: str, snap: Document) -> Document:
+def admission(run: Profile, plan: Document, snap: Document) -> Document:
     """The source's own counts: prepared recording manifests or the live gateway."""
-    if source == "live":
+    if plan["source"] == "live":
         status = cast(
             Document,
             cast(
@@ -279,13 +279,13 @@ def admission(run: Profile, source: str, snap: Document) -> Document:
             "refusal",
         )
         return {k: status.get(k) for k in keys} if status else {}
-    from runtime.recording.fault_run import recording_inputs
+    from runtime.recording.fault_run import plan_inputs
 
     bundle = run.out / "bundle"
     try:
         manifest = json.loads((bundle / "manifest.json").read_text())
         context = json.loads((bundle / "context.json").read_text())
-        prepared = recording_inputs(source)[0]
+        prepared = plan_inputs(plan)[0]
         battery = json.loads(
             next((prepared / "battery").glob("*/run-manifest.json")).read_text()
         )
@@ -309,7 +309,7 @@ def measure(run: Profile, plan: Document, snap: Document) -> Document:
     return {
         "source": source,
         "declared": {k: plan.get(k) for k in ("deliveries", "expected")},
-        "admission": admission(run, source, snap),
+        "admission": admission(run, plan, snap),
         "flink": flink(run, source),
         "kafka": kafka(run),
         "resources": resources(),
