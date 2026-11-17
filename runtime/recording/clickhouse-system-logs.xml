@@ -1,0 +1,36 @@
+<!--
+  Recording profile only (ADR-0056). ClickHouse's own system logs had no
+  retention and grew with every query: on the complete F09 run of 2026-11-17
+  they reached 496 MB (processors_profile_log 183 MB, query_log 162 MB,
+  trace_log 78 MB, part_log 33 MB, metric logs 39 MB) against 48 MB of run data,
+  about 650 MB per hour of operation. Nothing in the project reads them; the
+  monitoring signals come from other sources.
+
+  Kept: query_log, bounded to 3 days, for diagnosing a slow or failed query;
+  crash_log, written only when the server crashes. Removed: every other log
+  that writes during normal operation. Removing a log stops new writes; tables
+  that already exist keep their data until the maintainer removes it. A changed
+  query_log definition makes ClickHouse rename the old table to query_log_N.
+-->
+<clickhouse>
+  <query_log>
+    <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+  </query_log>
+  <processors_profile_log remove="1"/>
+  <trace_log remove="1"/>
+  <part_log remove="1"/>
+  <metric_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <query_metric_log remove="1"/>
+  <text_log remove="1"/>
+  <error_log remove="1"/>
+  <background_schedule_pool_log remove="1"/>
+  <query_thread_log remove="1"/>
+  <query_views_log remove="1"/>
+  <opentelemetry_span_log remove="1"/>
+  <asynchronous_insert_log remove="1"/>
+  <backup_log remove="1"/>
+  <s3queue_log remove="1"/>
+  <blob_storage_log remove="1"/>
+  <zookeeper_log remove="1"/>
+</clickhouse>

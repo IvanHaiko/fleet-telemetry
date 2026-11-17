@@ -186,6 +186,7 @@ services:
       - serving-data:/var/lib/clickhouse
       - {type: bind, source: ../runtime/clickhouse/limits.xml, target: /etc/clickhouse-server/config.d/limits.xml, read_only: true, bind: {create_host_path: false}}
       - {type: bind, source: ../runtime/recording/clickhouse-concurrency.xml, target: /etc/clickhouse-server/config.d/recording-concurrency.xml, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: ../runtime/recording/clickhouse-system-logs.xml, target: /etc/clickhouse-server/config.d/recording-system-logs.xml, read_only: true, bind: {create_host_path: false}}
     tmpfs:
       - /var/log/clickhouse-server:rw,noexec,nosuid,size=32m,uid=101,gid=101
       - /etc/clickhouse-server/users.d:rw,noexec,nosuid,size=1m,uid=101,gid=101

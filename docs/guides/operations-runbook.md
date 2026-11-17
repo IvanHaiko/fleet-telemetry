@@ -292,13 +292,29 @@ old session (`ops complete`), verify and stop it, and start a new run.
 - Disk per complete F09 run, measured on the stored step 5 run: 287 MB on the
   Docker disk (Kafka topics 79.6 MB, archive objects 95.9 MB, evidence volume
   61.3 MB, checkpoints 26.4 MB, SQL 24.0 MB) and 118 MB in the run directory on
-  the host. The declared budget is 512 MiB per run on each disk; `disk_free`
-  warns below two runs. Docker's virtual disk grows on the host disk, so the
-  smaller free space counts.
+  the host; the verification rebuild adds about 24 MB. The declared budget is
+  512 MiB per run on each disk; `disk_free` warns below two runs. Docker's
+  virtual disk grows on the host disk, so the smaller free space counts.
+- ClickHouse system logs: until 2026-11-17 they had no retention and grew by
+  about 650 MB per hour of operation (496 MB after the step 6 complete run).
+  The profile now keeps only `query_log` for 3 days and crash reports
+  (`runtime/recording/clickhouse-system-logs.xml`,
+  [ADR-0056](../adr/0056-run-health-without-a-monitoring-stack.md#final-complete-flight-run-2026-11-17)).
+  Older log data stays in the `system` database, including the renamed
+  `query_log_0`, until the maintainer removes it.
 - Resources are sampled into `resources.jsonl` (memory bytes and share of the
   limit, CPU against the container's budget, both disks, every volume's size)
   during readiness and while `complete` waits (`--sample`, default 15 s).
-  Peaks under the complete flight: pending the step 6 final run.
+- Peak memory on the complete F09 flight (2026-11-17), against compose limits:
+  serving worker 442/512 MiB (86 %), Kafka 740/1,024 MiB (72 %), Grafana
+  501/768 MiB (65 %), ClickHouse 1,165/2,048 MiB (57 %), TaskManager
+  889/3,072 MiB (29 %); every other container below 46 %. The serving worker
+  grows with the archived prefix and is the first to reach its limit on a
+  longer source.
+- Capture to browser, computed rather than measured: SQL visibility (2.0 s on
+  the complete flight) + one 2 s sample + the 5 s dashboard refresh + the
+  slowest simultaneous panel query (2.1 s) ≈ 11 s. On the complete flight a
+  refresh's 16 queries take 1.1 s at the median.
 - Measured results: SQL visibility within the 2 s sample interval outside
   fault windows on the complete flight (ADR-0052, ADR-0053); live visibility
   within 1 s (ADR-0054). After a whole-profile stop, `resume` reached

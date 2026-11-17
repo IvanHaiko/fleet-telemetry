@@ -88,7 +88,9 @@ flowchart LR
   declared threshold and an `ok`/`warn`/`fail`/`unknown` state. Thirteen
   contract-based SQL quality checks run in `ops status` and on a *Run health*
   panel. Checking the dashboards in a browser at full size found three
-  defects that query-by-query checks had missed, all fixed.
+  defects that query-by-query checks had missed, all fixed. The final complete
+  flight passed every condition but its disk budget: ClickHouse's own system
+  logs had no retention and grew about 650 MB per hour; they are now removed.
   [ADR-0056](docs/adr/0056-run-health-without-a-monitoring-stack.md)
 - **An upstream client bug, reproduced and tested.** On Windows,
   `confluent-kafka-python` truncates 64-bit Kafka UUID halves to 32 bits. The

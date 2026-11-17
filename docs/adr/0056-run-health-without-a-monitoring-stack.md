@@ -1,8 +1,10 @@
 # ADR-0056: Run health and data quality without a monitoring stack
 
 **Status:** Proposed, 2026-11-16. Implemented and checked on the stored
-complete runs of step 5 and on short debug runs; the final complete-flight
-run waits for the maintainer's criterion.
+complete runs of step 5, on short debug runs and on one complete F09 run
+under a criterion the maintainer approved; that run failed its declared disk
+condition and passed every other one ([final run](#final-complete-flight-run-2026-11-17)).
+The live final session has not run yet.
 
 ## Problem
 
@@ -150,6 +152,60 @@ and Grafana alone, with the current templates rendered for that run's
 database; nothing is copied. The evidence is in
 `.local-discovery/dashboard-check-20261116-01/`.
 
+## Final complete-flight run, 2026-11-17
+
+Run `f09-s6-full-20261116-01` (the ID keeps the date of its approved draft):
+the whole flight, 39,760 deliveries, no faults, through
+`runtime/recording/mvp_run.py`. Ready 153 s after `start`; serving complete at
+2,490 s; verified at 2,587 s; stopped at 2,929 s.
+
+| Condition | Result |
+| --- | --- |
+| readiness | passed |
+| health at 20,045 deliveries and after completion | passed: every signal `ok`, broker metrics `unknown`; dispositions `accepted 39758, duplicate 2, late 2, gps 21054`; checkpoints 241 completed, 1 failed (the submission trigger); 0 restarts; 13 quality checks at 0 violations |
+| `ops verify` | passed: hash set equals the reference, 0 logical repeats, archive-only rebuild equal |
+| resource samples | passed: 157 samples, largest gap 15.0 s; no container reached 95 % of its limit |
+| SQL visibility | passed: 21,054 facts, maximum 2.0 s (the sample interval) |
+| disk | **failed**: the profile volumes grew 639.7 MB against the declared 512 MiB |
+| dashboard, signed in | passed: datasource working; 5 rounds of 16 simultaneous queries without error, p50 1.09 s, maximum 2.10 s; every panel rendered; *Run health* 13 × `ok`; the map drew 2,350 route points, one per native second, plus the last position |
+| stop | passed: completed manifest with `health.json`; every volume kept |
+
+Peak memory against the compose limits: serving worker 442 of 512 MiB
+(86.4 %), Kafka 740 of 1,024 MiB (72.3 %), Grafana 501 of 768 MiB (65.3 %),
+ClickHouse 1,165 of 2,048 MiB (56.9 %), publisher 230 of 512 MiB (45.1 %),
+archive 319 of 768 MiB (41.6 %), archive worker 183 of 512 MiB (35.9 %),
+TaskManager 889 of 3,072 MiB (29.0 %), JobManager 414 of 1,536 MiB (27.0 %).
+Kafka and ClickHouse reached about one full CPU each at their peak. The serving
+worker is the only container above the 80 % warning share and its memory
+grows with the archived prefix; a longer source than this flight needs a
+larger limit or a serving change.
+
+**Why the disk condition failed.** `serving-data` grew 457.8 MB; Kafka 80 MB,
+evidence 61 MB, archive 23 MB and checkpoints 18 MB matched the earlier
+footprint. Read afterwards with only storage and ClickHouse started, the
+`system` database held 496 MB: `processors_profile_log` 183 MB, `query_log`
+162 MB, `trace_log` 78 MB, `part_log` 33 MB and metric logs 39 MB, against
+47.9 MB for the run's database and its rebuild. ClickHouse writes these logs
+for every query and the profile set no retention, so they grow with time,
+about 650 MB per hour of operation, not with the run. The declared budget was
+derived from the run's own objects and did not include them. The
+run-attributable growth was about 230 MB and the run directory on the host
+96.8 MB, both inside the budget. Under the condition as declared the run
+failed; it is not relabelled.
+
+**Decision on the system logs (maintainer, 2026-11-17).** Nothing in the
+project reads them, so the recording profile now removes every system log that
+writes during normal operation (`runtime/recording/clickhouse-system-logs.xml`)
+and keeps only `query_log`, bounded to 3 days, and `crash_log`. Checked on
+ClickHouse alone: 40 health queries added 0 rows to the removed logs; the new
+`query_log` carries the TTL and receives rows. ClickHouse renamed the old table
+to `query_log_0`; existing log data, about 496 MB, stays until the maintainer
+removes it.
+
+The capture-to-browser time is computed, not measured: SQL visibility 2.0 s,
+plus one 2 s sample, plus the 5 s refresh, plus the slowest of 16 simultaneous
+panel queries, 2.1 s, about 11.1 s.
+
 ## Consequences
 
 - `ops status`, `collect` and `stop` take about 25 s instead of about 10 s:
@@ -160,6 +216,9 @@ database; nothing is copied. The evidence is in
   `warn`, not a `fail`.
 - Kafka broker metrics stay `unknown` by decision; the status screen says so.
 - Signals are computed when `ops` runs; nothing alerts between two runs of it.
+- ClickHouse keeps no system logs except a 3-day `query_log` and crash
+  reports; diagnosing a slow query older than 3 days, or a merge problem, needs
+  the logs re-enabled first.
 - Rollback: the signals are reads. Removing them restores ADR-0055 behaviour;
-  the ClickHouse concurrency override and the dashboard changes are
-  independent and can be reverted separately.
+  the ClickHouse concurrency and system-log overrides and the dashboard
+  changes are independent and can be reverted separately.
