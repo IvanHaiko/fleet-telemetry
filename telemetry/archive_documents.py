@@ -8,16 +8,12 @@ from typing import NoReturn, cast
 
 from runtime.s3.immutable import StoreError
 from telemetry.archive_codec import (
-    ArchiveError,
     _fail,
     _integer,
     _mapping,
-    _nesting,
-    _pairs,
-    _parse_integer,
-    _reject_number,
     _source,
     _string,
+    parse_archive_json,
 )
 
 CONTROL = 65536
@@ -169,19 +165,7 @@ def safe_json(body: bytes, maximum: int, control: bool = False) -> dict[str, obj
         _fail()
     if len(body) > maximum:
         _fail("limit_exceeded", "document")
-    _nesting(body)
-    try:
-        parsed: object = json.loads(
-            body,
-            object_pairs_hook=_pairs,
-            parse_float=_reject_number,
-            parse_constant=_reject_number,
-            parse_int=_parse_integer,
-        )
-    except ArchiveError:
-        raise
-    except (ValueError, UnicodeError, RecursionError):
-        _fail()
+    parsed = parse_archive_json(body)
     if not isinstance(parsed, dict):
         _fail()
     pending: list[object] = [parsed]

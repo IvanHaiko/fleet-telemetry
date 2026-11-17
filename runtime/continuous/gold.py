@@ -11,7 +11,7 @@ from typing import cast
 from runtime.clickhouse.transport import HttpConfig, _request
 from telemetry.conversion_contract import SEMANTIC_FIELDS, json_object
 from telemetry.position_file import read_position
-from telemetry.serving_projection import _semantic_json
+from telemetry.serving_projection import semantic_json
 from telemetry.serving_sink import SinkError
 from telemetry_reader import EnvelopeError, read_battery_event
 
@@ -74,7 +74,7 @@ def overview(run_id: str, rows: list[dict[str, object]]) -> dict[str, object]:
             raise ValueError("gold_event_scope")
         semantic = {field: event[field] for field in SEMANTIC_FIELDS}
         semantic["quality_flags"] = sorted(cast(list[str], event["quality_flags"]))
-        encoded = _semantic_json(semantic)
+        encoded = semantic_json(semantic)
         if (
             fact.get("semantic_json") != encoded
             or fact.get("semantic_sha256")

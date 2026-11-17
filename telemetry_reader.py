@@ -15,7 +15,6 @@ from typing import cast
 from fleet_telemetry import MAX_NATIVE_INTEGER, BatteryEnvelope, ULogBatteryEnvelope
 
 MAX_EVENT_BYTES = 64 * 1024
-READER_VERSION = "battery-envelope-reader-v1"
 MAX_EVENT_FILE_BYTES = 64 * 1024 * 1024
 MAX_EVENT_RECORDS = 100_000
 type BatteryEvent = BatteryEnvelope | ULogBatteryEnvelope

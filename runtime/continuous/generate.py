@@ -26,7 +26,7 @@ from telemetry.archive_documents import canonical
 from telemetry.continuous_archive import object_row, require
 
 if TYPE_CHECKING:
-    from scripts.m3_transport_types import Error, Message
+    from telemetry.kafka_protocols import Error, Message
 
 
 def native(index: int, timestamp: int) -> dict[str, object]:

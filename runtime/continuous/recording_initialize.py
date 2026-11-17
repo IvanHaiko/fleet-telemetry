@@ -21,7 +21,7 @@ from typing import Protocol, cast
 from runtime.clickhouse.transport import HttpConfig, _request
 from runtime.continuous.kafka import Consumer, Kafka, Position
 from runtime.continuous.recording_config import MAX_BODY, MAX_LIFETIME_SECONDS
-from runtime.continuous.recording_sql import _READ_SETTINGS, RecordingSQL
+from runtime.continuous.recording_sql import READ_SETTINGS, RecordingSQL
 from runtime.flight_analytics.stream_prepare import load_bundle
 from runtime.s3.boto_transport import make_client
 from telemetry.conversion_contract import (
@@ -46,7 +46,7 @@ SQL_PORT = 8123
 GRAFANA_USER = "recording_grafana"
 # Grafana's own bounded SQL settings; readonly=1 refuses differing per-query values.
 GRAFANA_SETTINGS = {
-    **_READ_SETTINGS,
+    **READ_SETTINGS,
     "max_rows_to_read": "50000",
     "max_bytes_to_read": "64000000",
     "max_result_bytes": "4194304",
@@ -169,7 +169,7 @@ def create_sql(
     )
     _request(
         bootstrap,
-        f"ALTER USER {reader['user']} SETTINGS {settings_clause(_READ_SETTINGS)}",
+        f"ALTER USER {reader['user']} SETTINGS {settings_clause(READ_SETTINGS)}",
         b"",
         write=True,
     )

@@ -21,7 +21,6 @@ one. Output holds counts, states and times only, never values or coordinates.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import time
@@ -32,15 +31,12 @@ from runtime.recording.evidence import probe, write
 from runtime.recording.fault_run import git
 from runtime.recording.live_prepare import UDP_PORT, prepare_live
 from runtime.recording.ops import load, scope, stop_run
+from runtime.recording.prepare import file_digest
 from runtime.recording.profile import PROJECT, Document, Profile, RunFailure, require
 from telemetry.ulog_replay import ReplayRefused, plan
 
 PROFILES = ("run", "live", "fleet")
 PLAYERS = "state/players"
-
-
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def player_name(run: Profile, digest: str) -> str:
@@ -141,7 +137,7 @@ def add(args: argparse.Namespace) -> Document:
 
 def control(args: argparse.Namespace, action: str) -> Document:
     run, _ = load(args.run_id)
-    digest = _digest(cast(Path, args.file).resolve())
+    digest = str(file_digest(cast(Path, args.file).resolve())["sha256"])
     vehicle = f"ulog-{digest[:16]}"
     folder = f"/evidence/{run.run_id}/{PLAYERS}"
     script = (

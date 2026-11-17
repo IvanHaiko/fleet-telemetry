@@ -3,6 +3,8 @@
 import hashlib
 import re
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from runtime.flight_analytics.stream_contract import (
@@ -33,83 +35,32 @@ from telemetry.recording_stream import (
     STREAMS,
     make_event,
 )
-from telemetry.recordings import ADMITTED_MAX_INPUT_BYTES, RECORDINGS, recording
+from telemetry.recordings import (
+    ADMITTED_MAX_INPUT_BYTES,
+    RECORDINGS,
+    Recording,
+    recording,
+)
 from telemetry_reader import read_battery_event
 
 
-def _verify_prepared(
-    prepared: Path, source: Path
-) -> tuple[
-    list[Document], list[Document], list[Document], int, list[Document], Document
-]:
-    """Read bounded snapshots and reconcile every retained inspection section."""
-    # Imports stay local: pure timeline/readback do not require the ULog parser.
-    from runtime.flight_analytics.recording import combine
-    from runtime.flight_analytics.state import FIELDS, read_prepared
-    from runtime.flight_analytics.state_time import source_gaps
+@dataclass(frozen=True)
+class _BatteryVerification:
+    rows: list[Document]
+    manifest: Document
+    counts: dict[str, int]
+    reasons: dict[str, int]
+    semantic_hash: str
 
-    inventory: Document = {}
-    source_body = _read(
-        source,
-        max(
-            ADMITTED_MAX_INPUT_BYTES,
-            *(item.source_bytes for item in RECORDINGS.values()),
-        ),
-    )
-    try:
-        registered = recording("sha256:" + hashlib.sha256(source_body).hexdigest())
-    except ValueError:
-        raise ValueError("stream_original_bytes") from None
-    if len(source_body) != registered.source_bytes:
-        raise ValueError("stream_original_bytes")
-    inventory["source.ulog"] = _reference(source_body)
-    del source_body
-    total = 0
+    @property
+    def source_count(self) -> int:
+        return self.counts["source_records"]
 
-    def artifact(relative: str, limit: int = MAX_BYTES) -> bytes:
-        nonlocal total
-        body = _read(prepared / relative, limit)
-        total += len(body)
-        if total > MAX_BYTES:
-            raise ValueError("stream_prepared_byte_limit")
-        inventory["prepared/" + relative] = _reference(body)
-        return body
 
-    report = json_object(artifact("recording.json", 32_000))
-    gps_manifest = json_object(artifact("gps/manifest.json", 8192))
-    gps_body = artifact("gps/gps.jsonl", 32_000_000)
-    state_manifest = json_object(artifact("state/manifest.json", 8192))
-    state_body = artifact("state/state.jsonl", 8_000_000)
-    gps = _rows(gps_body, 25_000)
-    states = _rows(state_body, 10_000)
-    # Existing helper validates the complete state projection and pinned metadata.
-    if not _same(read_prepared(_safe_path(prepared / "state"), registered), states):
-        raise ValueError("stream_state_changed")
-    expected_gps: Document = {
-        "profile": registered.gps_profile,
-        "source_id": registered.source_id,
-        "firmware": registered.firmware,
-        "gps_definition_sha256": registered.gps_definition,
-        "stream": STREAMS[3],
-        "records": registered.gps_records,
-        "valid_positions": sum(row.get("latitude_deg") is not None for row in gps),
-        "valid_ground_speed": sum(
-            row.get("ground_speed_m_s") is not None for row in gps
-        ),
-        "gps_utc_nonzero": sum(row.get("gps_utc") is not None for row in gps),
-        "source_time_semantics": (
-            "boot-relative; GPS UTC is not a proven sample-time mapping"
-        ),
-        "privacy": "restricted",
-        "scope": f"exact {registered.label} source; parser/framing agreement only",
-        "rows_sha256": hashlib.sha256(gps_body).hexdigest(),
-    }
-    if registered.gps_layout == "scaled_integer":
-        expected_gps["unit_mapping"] = (
-            "lat/lon 1e-7 deg to deg; alt mm to m; no sample time"
-        )
-    if len(gps) != registered.gps_records:
-        raise ValueError("stream_gps_count")
+def _verify_battery(
+    prepared: Path, registered: Recording, artifact: Callable[[str, int], bytes]
+) -> _BatteryVerification:
+    """Reconcile the single retained battery delivery against its manifest."""
     root = _safe_path(prepared / "battery")
     deliveries = list(root.iterdir())
     if len(deliveries) != 1:
@@ -225,6 +176,85 @@ def _verify_prepared(
         or run["semantic_sha256"] != semantic_hash
     ):
         raise ValueError("stream_battery_reconciliation")
+    return _BatteryVerification(
+        battery, run, expected_counts, dict(reasons), semantic_hash
+    )
+
+
+def verify_prepared(
+    prepared: Path, source: Path
+) -> tuple[
+    list[Document], list[Document], list[Document], int, list[Document], Document
+]:
+    """Read bounded snapshots and reconcile every retained inspection section."""
+    # Imports stay local: pure timeline/readback do not require the ULog parser.
+    from runtime.flight_analytics.recording import combine
+    from runtime.flight_analytics.state import FIELDS, read_prepared
+    from runtime.flight_analytics.state_time import source_gaps
+
+    inventory: Document = {}
+    source_body = _read(
+        source,
+        max(
+            ADMITTED_MAX_INPUT_BYTES,
+            *(item.source_bytes for item in RECORDINGS.values()),
+        ),
+    )
+    try:
+        registered = recording("sha256:" + hashlib.sha256(source_body).hexdigest())
+    except ValueError:
+        raise ValueError("stream_original_bytes") from None
+    if len(source_body) != registered.source_bytes:
+        raise ValueError("stream_original_bytes")
+    inventory["source.ulog"] = _reference(source_body)
+    del source_body
+    total = 0
+
+    def artifact(relative: str, limit: int = MAX_BYTES) -> bytes:
+        nonlocal total
+        body = _read(prepared / relative, limit)
+        total += len(body)
+        if total > MAX_BYTES:
+            raise ValueError("stream_prepared_byte_limit")
+        inventory["prepared/" + relative] = _reference(body)
+        return body
+
+    report = json_object(artifact("recording.json", 32_000))
+    gps_manifest = json_object(artifact("gps/manifest.json", 8192))
+    gps_body = artifact("gps/gps.jsonl", 32_000_000)
+    state_manifest = json_object(artifact("state/manifest.json", 8192))
+    state_body = artifact("state/state.jsonl", 8_000_000)
+    gps = _rows(gps_body, 25_000)
+    states = _rows(state_body, 10_000)
+    # Existing helper validates the complete state projection and pinned metadata.
+    if not _same(read_prepared(_safe_path(prepared / "state"), registered), states):
+        raise ValueError("stream_state_changed")
+    expected_gps: Document = {
+        "profile": registered.gps_profile,
+        "source_id": registered.source_id,
+        "firmware": registered.firmware,
+        "gps_definition_sha256": registered.gps_definition,
+        "stream": STREAMS[3],
+        "records": registered.gps_records,
+        "valid_positions": sum(row.get("latitude_deg") is not None for row in gps),
+        "valid_ground_speed": sum(
+            row.get("ground_speed_m_s") is not None for row in gps
+        ),
+        "gps_utc_nonzero": sum(row.get("gps_utc") is not None for row in gps),
+        "source_time_semantics": (
+            "boot-relative; GPS UTC is not a proven sample-time mapping"
+        ),
+        "privacy": "restricted",
+        "scope": f"exact {registered.label} source; parser/framing agreement only",
+        "rows_sha256": hashlib.sha256(gps_body).hexdigest(),
+    }
+    if registered.gps_layout == "scaled_integer":
+        expected_gps["unit_mapping"] = (
+            "lat/lon 1e-7 deg to deg; alt mm to m; no sample time"
+        )
+    if len(gps) != registered.gps_records:
+        raise ValueError("stream_gps_count")
+    battery = _verify_battery(prepared, registered, artifact)
     gaps, evidence = source_gaps(_safe_path(source), gps, states, registered)
     dropout = evidence["dropout_count"]
     duration = evidence["dropout_duration_ms"]
@@ -244,19 +274,19 @@ def _verify_prepared(
         "clock": "microseconds since system start",
     }
     if not _same(state_manifest, expected_state) or not _same(
-        run["source_observations"],
+        battery.manifest["source_observations"],
         {"dropout_count": dropout, "dropout_duration_ms": duration},
     ):
         raise ValueError("stream_state_or_source_manifest")
     age = _integer(report["max_age_us"], 0, 60_000_000)
     typed_battery: list[ULogBatteryEnvelope] = []
-    for row in battery:
+    for row in battery.rows:
         event = read_battery_event(json_line(row))
         if event["source_type"] != "ulog":
             raise ValueError("stream_battery_profile")
         typed_battery.append(event)
     expected_rows = combine(
-        gps, states, typed_battery, source_count, gaps, age, registered
+        gps, states, typed_battery, battery.source_count, gaps, age, registered
     )
     inspection = artifact("inspection.jsonl")
     rows = _rows(inspection, 25_000)
@@ -283,9 +313,9 @@ def _verify_prepared(
         "association_status_counts": {name: dict(c) for name, c in statuses.items()},
         "gps": gps_manifest,
         "state": state_manifest,
-        "battery_counts": expected_counts,
-        "battery_semantic_sha256": semantic_hash,
-        "battery_rejection_reasons": dict(reasons),
+        "battery_counts": battery.counts,
+        "battery_semantic_sha256": battery.semantic_hash,
+        "battery_rejection_reasons": battery.reasons,
         "original_evidence": evidence,
     }
     require_keys(report, set(expected_report) | {"limitations"})
@@ -295,9 +325,9 @@ def _verify_prepared(
     _limitations(report["limitations"])
     return (
         gps,
-        battery,
+        battery.rows,
         states,
-        source_count,
+        battery.source_count,
         [{"start_us": gap.start_us, "end_us": gap.end_us} for gap in gaps],
         inventory,
     )

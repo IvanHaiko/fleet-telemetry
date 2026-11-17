@@ -1,0 +1,42 @@
+FROM eclipse-temurin:25-jre@sha256:171ffcf2a9ca207dfbc77b825cd3aaf8ab08d6113c086ee11514b965269fde28 AS runtime
+
+ENV FLEET_RUNTIME=/home/ivan/.local/share/fleet-telemetry/pyflink/m3-compatibility-002
+ENV JAVA_HOME=${FLEET_RUNTIME}/jdk/jdk-17.0.20.1+1 \
+    FLINK_HOME=${FLEET_RUNTIME}/venv/lib/python3.12/site-packages/pyflink \
+    FLINK_CONF_DIR=/opt/m3/conf \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
+    PYTHONPATH=/workspace:/workspace/runtime/pyflink
+ENV PATH="${JAVA_HOME}/bin:${FLEET_RUNTIME}/venv/bin:${PATH}"
+
+COPY container/recording-inputs.sha256 /opt/m3/recording-inputs.sha256
+RUN --network=none --mount=from=payload,target=/inputs,ro \
+    cd /inputs && sha256sum -c /opt/m3/recording-inputs.sha256 \
+    && mkdir -p "${FLEET_RUNTIME}" /opt/m3/conf /usr/share/doc/m3-rev \
+    && tar -xf runtime-payload.tar -C "${FLEET_RUNTIME}" \
+    && cp runtime-payload-manifest.json /opt/m3/runtime-manifest.json \
+    && cp config.yaml /opt/m3/conf/ && cp utility-pins.json /opt/m3/ \
+    && install -m 755 entrypoint.sh /opt/m3/entrypoint.sh \
+    && cp preflight.py /opt/m3/preflight-base.py \
+    && install -m 755 rev /usr/local/bin/rev \
+    && cp rev-copyright GPL-2 /usr/share/doc/m3-rev/ \
+    && cp "${FLINK_HOME}"/conf/*log* /opt/m3/conf/ \
+    && mkdir -p /state/checkpoints /state/logs /state/inputs /state/tmp \
+    && chown -R 10001:10001 /state
+
+FROM runtime AS connector
+COPY prepare_connector_backport.py connector-backport.json EnumeratorGuardProbe.java /build/
+COPY --from=upstream KafkaSourceEnumerator.java /source/KafkaSourceEnumerator.java
+RUN --network=none python /build/prepare_connector_backport.py \
+    --runtime "${FLEET_RUNTIME}" --source /source/KafkaSourceEnumerator.java --output /result
+
+FROM runtime
+COPY --from=connector /result/build-a/connector-local-backport.jar ${FLINK_HOME}/lib/flink-sql-connector-kafka-5.0.0-2.2.jar
+COPY container/connector-image-pin.json /opt/m3/connector-image-pin.json
+COPY container/preflight-backport.py /opt/m3/preflight.py
+USER 10001:10001
+WORKDIR /workspace
+RUN --network=none python -B /opt/m3/preflight.py \
+    && "${FLINK_HOME}/bin/flink" --version >/tmp/flink-version 2>&1 \
+    && grep -F '2.2.1' /tmp/flink-version \
+    && ! grep -F 'command not found' /tmp/flink-version
+ENTRYPOINT ["/bin/bash", "/opt/m3/entrypoint.sh"]

@@ -157,6 +157,7 @@ def _run_suite(command: list[str]) -> subprocess.CompletedProcess[str]:
             shutil.copyfile(ROOT / "tests/fixtures" / name, fixtures / name)
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT)
+        env["ARCHIVE_TEST_SCRATCH"] = str(working / "scratch")
         return subprocess.run(
             command, cwd=working, env=env, capture_output=True, text=True, timeout=120
         )

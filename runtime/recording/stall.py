@@ -30,10 +30,10 @@ from __future__ import annotations
 
 from runtime.recording.ops_view import (
     STATUS_AGE_LIMIT_S,
-    _get,
-    _grew,
-    _number,
     age_s,
+    field,
+    increased,
+    number_at,
 )
 
 type Document = dict[str, object]
@@ -66,29 +66,31 @@ def _fresh(snap: Document, progress: str) -> bool | None:
 
 def explain(prev: Document, cur: Document, window_s: float) -> Document:
     inside = cur.get("inside")
-    live = _get(inside, "source") == "live"
+    live = field(inside, "source") == "live"
     sender = "gateway-status" if live else "producer-status"
-    source_state = _get(inside, "progress", sender, "status")
-    end = _number(inside, "kafka", "input_end")
-    archived = _number(inside, "progress", "archive-status", "input_next")
-    served = _number(inside, "progress", "serving-status", "input_archived")
+    source_state = field(inside, "progress", sender, "status")
+    end = number_at(inside, "kafka", "input_end")
+    archived = number_at(inside, "progress", "archive-status", "input_next")
+    served = number_at(inside, "progress", "serving-status", "input_archived")
     # Growth needs two snapshots; over no window it is not measured.
     measured = window_s > 0
-    input_grew = _grew(prev, cur, "inside", "kafka", "input_end") if measured else None
+    input_grew = (
+        increased(prev, cur, "inside", "kafka", "input_end") if measured else None
+    )
     archive_grew = (
-        _grew(prev, cur, "inside", "progress", "archive-status", "input_next")
+        increased(prev, cur, "inside", "progress", "archive-status", "input_next")
         if measured
         else None
     )
     query_grew = (
-        _grew(prev, cur, "inside", "sql", "distinct_inputs") if measured else None
+        increased(prev, cur, "inside", "sql", "distinct_inputs") if measured else None
     )
     serving_fresh = _fresh(cur, "serving-status")
     source_fresh = _fresh(cur, sender)
-    sql_now = _number(inside, "sql", "sql_clock_ms")
-    written = _number(inside, "sql", "progress_written_ms")
-    receipt_ms = _number(inside, "sql", "live_state", "source_receipt_age_ms")
-    connection = _get(inside, "sql", "live_state", "connection")
+    sql_now = number_at(inside, "sql", "sql_clock_ms")
+    written = number_at(inside, "sql", "progress_written_ms")
+    receipt_ms = number_at(inside, "sql", "live_state", "source_receipt_age_ms")
+    connection = field(inside, "sql", "live_state", "connection")
     # A transient gap between archive and serving is normal; only a larger one
     # means serving holds archived input back (the serving worker's threshold).
     waiting_input = (
@@ -98,7 +100,7 @@ def explain(prev: Document, cur: Document, window_s: float) -> Document:
     )
 
     code = "unknown"
-    if _get(inside, "markers", "serving-complete") is True:
+    if field(inside, "markers", "serving-complete") is True:
         code = "completed"
     elif query_grew is True:
         code = "advancing"
@@ -132,13 +134,13 @@ def explain(prev: Document, cur: Document, window_s: float) -> Document:
         "window_s": window_s,
         "source": {
             "state": source_state,
-            "progress": _get(
+            "progress": field(
                 inside, "progress", sender, "published" if live else "acknowledged"
             ),
-            "declared": None if live else _get(inside, "progress", sender, "declared"),
+            "declared": None if live else field(inside, "progress", sender, "declared"),
             "position_native_us": None
             if live
-            else _get(inside, "progress", sender, "position_native_us"),
+            else field(inside, "progress", sender, "position_native_us"),
             "status_age_s": age_s(cur, sender),
             "receipt_age_ms": receipt_ms,
             "clock": "receipt age on the SQL clock (live); native time and "
@@ -151,11 +153,11 @@ def explain(prev: Document, cur: Document, window_s: float) -> Document:
             "status_age_s": age_s(cur, "archive-status"),
         },
         "query": {
-            "visible_inputs": _get(inside, "sql", "distinct_inputs"),
+            "visible_inputs": field(inside, "sql", "distinct_inputs"),
             "advancing": query_grew,
             "serving_taken": served,
             "serving_status_age_s": age_s(cur, "serving-status"),
-            "last_visible_native_us": _get(inside, "sql", "last_visible_native_us"),
+            "last_visible_native_us": field(inside, "sql", "last_visible_native_us"),
             "progress_write_age_s": None
             if sql_now is None or written is None
             else round((sql_now - written) / 1e3, 1),

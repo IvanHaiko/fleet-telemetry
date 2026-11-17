@@ -62,7 +62,7 @@ class ServingError(ValueError):
         self.field = field
 
 
-def _decimal(value: object, field: str) -> str | None:
+def metric_decimal(value: object, field: str) -> str | None:
     if value is None:
         return None
     number = Decimal(str(cast(int | float, value)))
@@ -77,7 +77,7 @@ def _decimal(value: object, field: str) -> str | None:
     return f"{sign}{whole}.{fraction:06d}"
 
 
-def _semantic_json(value: object) -> str:
+def semantic_json(value: object) -> str:
     """Encode recognized values with context-independent decimal spelling."""
     if value is None:
         return "null"
@@ -96,14 +96,14 @@ def _semantic_json(value: object) -> str:
         return (
             "{"
             + ",".join(
-                json.dumps(key, ensure_ascii=False) + ":" + _semantic_json(mapping[key])
+                json.dumps(key, ensure_ascii=False) + ":" + semantic_json(mapping[key])
                 for key in sorted(mapping)
             )
             + "}"
         )
     # The canonical reader supplies only JSON arrays in the remaining case.
     sequence = cast(list[object], value)
-    return "[" + ",".join(_semantic_json(item) for item in sequence) + "]"
+    return "[" + ",".join(semantic_json(item) for item in sequence) + "]"
 
 
 def project_archive(
@@ -136,7 +136,7 @@ def project_archive(
             raise ServingError("lineage_mismatch", "registration")
         job = admitted[0]
         payload = cast(dict[str, object], event["payload"])
-        numbers = {field: _decimal(payload[field], field) for field in _PAYLOAD}
+        numbers = {field: metric_decimal(payload[field], field) for field in _PAYLOAD}
         flags = tuple(sorted(cast(list[str], event["quality_flags"])))
         semantic = {field: event[field] for field in SEMANTIC_FIELDS}
         semantic["quality_flags"] = list(flags)
@@ -151,7 +151,7 @@ def project_archive(
                 current_a=numbers["current_a"],
                 remaining_fraction=numbers["remaining_fraction"],
                 quality_flags=flags,
-                semantic_json=_semantic_json(semantic),
+                semantic_json=semantic_json(semantic),
                 source_dataset_run_id=cast(str, job.delivery["dataset_run_id"]),
                 source_job_sha256=job.job_hash,
                 archive_descriptor_sha256=expected_sha256,

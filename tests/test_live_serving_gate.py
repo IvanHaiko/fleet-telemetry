@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from runtime.continuous.live_worker import SESSION_KEY, ArchivedFacts
+from runtime.continuous.live_archive_gate import SESSION_KEY, ArchivedFacts
 from runtime.s3.archive_store import ArchiveStore
 from telemetry.archive_documents import digest
 from telemetry.continuous_archive import SegmentedArchive

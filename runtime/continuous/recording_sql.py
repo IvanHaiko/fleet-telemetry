@@ -61,7 +61,7 @@ _SOURCE_PROGRESS = {
     "archive_next",
     "serving_taken",
 }
-_READ_SETTINGS = {
+READ_SETTINGS = {
     "readonly": "1",
     "max_execution_time": "10",
     "max_threads": "1",
@@ -343,7 +343,7 @@ class RecordingSQL:
             self.reader,
             sql + " FORMAT JSONEachRow",
             b"",
-            parameters=dict(_READ_SETTINGS),
+            parameters=dict(READ_SETTINGS),
         )
         if len(body) > _MAX_BODY_BYTES:
             raise ValueError("recording_sql_read_bound")

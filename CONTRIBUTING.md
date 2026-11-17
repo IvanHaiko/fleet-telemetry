@@ -45,8 +45,12 @@ uv run --no-sync python -m mypy
 The default mypy configuration covers the library and root tests. Changed
 runtime/scripts need explicit type checking in the environment that supplies
 their optional dependencies. The module-size guard covers owned Python modules
-in the root, library, scripts, runtime and tests. Files must stay below 500 lines;
-responsibility boundaries matter more than splitting a file to meet a number.
+in the root, library, scripts, runtime and tests. The maximum is 499 physical
+lines, including comments and blank lines. When a change approaches the limit,
+identify a responsibility with its own inputs and outputs. For example, snapshot
+collection talks to services, while signal evaluation consumes snapshot values.
+Keep related behavior together and give shared operations explicit public names.
+Preserve readable control flow, names and comments when making room for a change.
 
 HTTP tests open loopback sockets. Symlink checks require symlink privileges.
 Linux-only workers and the isolated ClickHouse test have explicit environment
@@ -56,7 +60,9 @@ requirements. Report skips and setup failures separately from passing tests.
 
 PyFlink has a separate Linux/Python 3.12.13 project under `runtime/pyflink/`.
 Its dependencies and tests are not part of a root `uv sync`. S3 and native
-service boundaries also have their own checks. Follow the selected runbook
+service boundaries also have their own checks. The Linux synthetic CI job runs
+`uv run --no-sync python scripts/check-m4.py` for offline archive and serving
+checks. Follow the selected runbook
 instead of recursively running all experiment code or starting every Compose file.
 
 The [M1 guide](docs/guides/m1-checks.md) and

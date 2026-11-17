@@ -26,10 +26,10 @@ from fleet_telemetry import (
 )
 from runtime.clickhouse.transport import HttpConfig, _request
 from scripts.m3_transport import Transport
-from scripts.m3_transport_types import Error, Message
 from telemetry.archive_documents import canonical
 from telemetry.conversion_contract import SEMANTIC_FIELDS
-from telemetry.serving_projection import _decimal, _semantic_json
+from telemetry.kafka_protocols import Error, Message
+from telemetry.serving_projection import metric_decimal, semantic_json
 from telemetry_reader import read_battery_event
 
 type Row = dict[str, object]
@@ -104,14 +104,14 @@ def projection(wire: bytes, run_id: str) -> Row:
         "event_id": event["event_id"],
         "vehicle_id": event["vehicle_id"],
         "source_timestamp": event["source_timestamp"],
-        "voltage_v": _decimal(payload["voltage_v"], "voltage_v"),
-        "current_a": _decimal(payload["current_a"], "current_a"),
-        "remaining_fraction": _decimal(
+        "voltage_v": metric_decimal(payload["voltage_v"], "voltage_v"),
+        "current_a": metric_decimal(payload["current_a"], "current_a"),
+        "remaining_fraction": metric_decimal(
             payload["remaining_fraction"], "remaining_fraction"
         ),
         "disposition": "eligible",
         "quality_flags": event["quality_flags"],
-        "semantic_json": _semantic_json(semantic),
+        "semantic_json": semantic_json(semantic),
     }
 
 

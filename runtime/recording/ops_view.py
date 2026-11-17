@@ -98,7 +98,7 @@ def snapshot(run: Profile) -> Document:
     }
 
 
-def _get(document: object, *path: str) -> object:
+def field(document: object, *path: str) -> object:
     for key in path:
         if not isinstance(document, dict):
             return None
@@ -106,19 +106,19 @@ def _get(document: object, *path: str) -> object:
     return document
 
 
-def _number(document: object, *path: str) -> float | None:
-    value = _get(document, *path)
+def number_at(document: object, *path: str) -> float | None:
+    value = field(document, *path)
     return value if isinstance(value, (int, float)) and value is not True else None
 
 
 def age_s(snap: Document, progress: str) -> float | None:
-    written = _number(snap, "inside", "progress", progress, "written_ms")
-    clock = _number(snap, "inside", "clock_ms")
+    written = number_at(snap, "inside", "progress", progress, "written_ms")
+    clock = number_at(snap, "inside", "clock_ms")
     return None if written is None or clock is None else (clock - written) / 1e3
 
 
-def _grew(prev: Document, cur: Document, *path: str) -> bool | None:
-    before, after = _number(prev, *path), _number(cur, *path)
+def increased(prev: Document, cur: Document, *path: str) -> bool | None:
+    before, after = number_at(prev, *path), number_at(cur, *path)
     return None if before is None or after is None else after > before
 
 
@@ -127,7 +127,7 @@ def _both(*values: bool | None) -> bool | None:
 
 
 def _running(snap: Document, service: str) -> bool:
-    return _get(snap, "containers", service, "state") == "running"
+    return field(snap, "containers", service, "state") == "running"
 
 
 def evaluate(
@@ -139,7 +139,10 @@ def evaluate(
     sender = (
         ("live-gateway", "gateway-status") if live else ("publisher", "producer-status")
     )
-    job, before = _get(cur, "flink", "job"), _get(prev, "flink", "job")
+    job, before = (
+        field(cur, "flink", "job"),
+        field(prev, "flink", "job"),
+    )
 
     def fresh(service: str, progress: str) -> bool | None:
         age = age_s(cur, progress)
@@ -147,20 +150,20 @@ def evaluate(
             _running(cur, service), None if age is None else age <= STATUS_AGE_LIMIT_S
         )
 
-    identity = _get(cur, "inside", "kafka", "identity_ok")
+    identity = field(cur, "inside", "kafka", "identity_ok")
     checkpoints: bool | None = None
     if isinstance(job, dict) and isinstance(before, dict):
-        age = _number(job, "latest_age_s")
+        age = number_at(job, "latest_age_s")
         checkpoints = (
             job.get("jid") == before.get("jid")
-            and _grew(prev, cur, "flink", "job", "completed") is True
+            and increased(prev, cur, "flink", "job", "completed") is True
             and age is not None
             and age <= CHECKPOINT_AGE_LIMIT_S
         )
-    slots = _number(cur, "flink", "slots_total")
+    slots = number_at(cur, "flink", "slots_total")
     checks: dict[str, bool | None] = {
         "broker_healthy": _both(
-            _get(cur, "containers", "kafka", "health") == "healthy",
+            field(cur, "containers", "kafka", "health") == "healthy",
             None if identity is None else identity is True,
         ),
         "flink_slots_registered": None if slots is None else slots >= 1,
@@ -172,25 +175,25 @@ def evaluate(
         "serving_worker": fresh(prefix + "serving-worker", "serving-status"),
         "source_worker": fresh(*sender),
         "clickhouse": None
-        if _get(cur, "inside", "status") != "ok"
-        else _get(cur, "inside", "sql", "error") is None,
-        "seaweedfs": _get(cur, "inside", "s3_answers") is True
-        if _get(cur, "inside", "status") == "ok"
+        if field(cur, "inside", "status") != "ok"
+        else field(cur, "inside", "sql", "error") is None,
+        "seaweedfs": field(cur, "inside", "s3_answers") is True
+        if field(cur, "inside", "status") == "ok"
         else None,
         "grafana_health": None
         if "error" in cast(Document, cur.get("grafana") or {})
-        else _get(cur, "grafana", "database") == "ok",
-        "input_advancing": _grew(prev, cur, "inside", "kafka", "input_end"),
-        "archive_advancing": _grew(
+        else field(cur, "grafana", "database") == "ok",
+        "input_advancing": increased(prev, cur, "inside", "kafka", "input_end"),
+        "archive_advancing": increased(
             prev, cur, "inside", "progress", "archive-status", "input_next"
         ),
-        "sql_advancing": _grew(prev, cur, "inside", "sql", "distinct_inputs"),
+        "sql_advancing": increased(prev, cur, "inside", "sql", "distinct_inputs"),
     }
     if live:
-        refusal = _get(cur, "inside", "progress", "gateway-status", "refusal")
+        refusal = field(cur, "inside", "progress", "gateway-status", "refusal")
         checks["source_not_refused"] = refusal is None
     if after_end is not None:
-        highest = _number(cur, "inside", "sql", "max_input_offset")
+        highest = number_at(cur, "inside", "sql", "max_input_offset")
         checks["fact_after_resume_visible"] = (
             None if highest is None else highest >= after_end
         )
@@ -210,45 +213,45 @@ def render(cur: Document, checks: dict[str, bool | None] | None, window: float) 
     inside, flink, job = (
         cur.get("inside"),
         cur.get("flink"),
-        _get(cur, "flink", "job") or {},
+        field(cur, "flink", "job") or {},
     )
-    source = _get(inside, "source")
+    source = field(inside, "source")
     sender = "gateway-status" if source == "live" else "producer-status"
-    end = _number(inside, "kafka", "input_end")
-    archived = _number(inside, "progress", "archive-status", "input_next")
-    committed = _number(inside, "kafka", "processing_committed")
+    end = number_at(inside, "kafka", "input_end")
+    archived = number_at(inside, "progress", "archive-status", "input_next")
+    committed = number_at(inside, "kafka", "processing_committed")
 
     def lag(a: float | None, b: float | None) -> str:
         return "unknown" if a is None or b is None else str(int(a - b))
 
-    sent = _get(inside, "progress", sender) or {}
-    sql_error = _get(inside, "sql", "error") or (
-        "none" if _get(inside, "sql") else "unknown"
+    sent = field(inside, "progress", sender) or {}
+    sql_error = field(inside, "sql", "error") or (
+        "none" if field(inside, "sql") else "unknown"
     )
-    count = _get(sent, "published" if source == "live" else "acknowledged")
+    count = field(sent, "published" if source == "live" else "acknowledged")
     lines = [
-        f"run {_show(_get(inside, 'run_id'))} ({_show(source)}), "
+        f"run {_show(field(inside, 'run_id'))} ({_show(source)}), "
         f"host {cur['host_utc']}",
         "Broker      health "
-        f"{_show(_get(cur, 'containers', 'kafka', 'health'))}; input end "
-        f"{_show(end)}; output end {_show(_get(inside, 'kafka', 'output_end_total'))}"
+        f"{_show(field(cur, 'containers', 'kafka', 'health'))}; input end "
+        f"{_show(end)}; output end {_show(field(inside, 'kafka', 'output_end_total'))}"
         " (incl. transaction markers)",
-        f"Flink       {_show(_get(flink, 'version'))}; taskmanagers "
-        f"{_show(_get(flink, 'taskmanagers'))}; slots free/total "
-        f"{_show(_get(flink, 'slots_free'))}/{_show(_get(flink, 'slots_total'))}; "
-        f"run jobs {_show(_get(flink, 'jobs'))}",
-        f"Job         {_show(_get(job, 'jid'))} all vertices running "
-        f"{_show(_get(job, 'all_running'))}; checkpoints completed "
-        f"{_show(_get(job, 'completed'))}, failed {_show(_get(job, 'failed'))}, "
-        f"latest #{_show(_get(job, 'latest_id'))} age "
-        f"{_show(_get(job, 'latest_age_s'), ' s')}",
+        f"Flink       {_show(field(flink, 'version'))}; taskmanagers "
+        f"{_show(field(flink, 'taskmanagers'))}; slots free/total "
+        f"{_show(field(flink, 'slots_free'))}/{_show(field(flink, 'slots_total'))}; "
+        f"run jobs {_show(field(flink, 'jobs'))}",
+        f"Job         {_show(field(job, 'jid'))} all vertices running "
+        f"{_show(field(job, 'all_running'))}; checkpoints completed "
+        f"{_show(field(job, 'completed'))}, failed {_show(field(job, 'failed'))}, "
+        f"latest #{_show(field(job, 'latest_id'))} age "
+        f"{_show(field(job, 'latest_age_s'), ' s')}",
         f"Processing  committed input offset {_show(committed)}; lag behind input "
         f"{lag(end, committed)} deliveries (committed per checkpoint)",
-        f"Source      {_show(_get(sent, 'status'))}; sent "
+        f"Source      {_show(field(sent, 'status'))}; sent "
         f"{_show(count)}; "
         + (
-            f"epoch {_show(_get(sent, 'epoch'))}; refusal "
-            f"{_get(sent, 'refusal') or 'none'}; "
+            f"epoch {_show(field(sent, 'epoch'))}; refusal "
+            f"{field(sent, 'refusal') or 'none'}; "
             if source == "live"
             else ""
         )
@@ -257,28 +260,28 @@ def render(cur: Document, checks: dict[str, bool | None] | None, window: float) 
         f"Archive     archived prefix {_show(archived)}; lag {lag(end, archived)}; "
         f"status age {_show(age_s(cur, 'archive-status'), ' s')}",
         "Serving     archived seen "
-        f"{_show(_get(inside, 'progress', 'serving-status', 'input_archived'))}; "
+        f"{_show(field(inside, 'progress', 'serving-status', 'input_archived'))}; "
         "logical facts "
-        f"{_show(_get(inside, 'progress', 'serving-status', 'logical_facts'))}; "
+        f"{_show(field(inside, 'progress', 'serving-status', 'logical_facts'))}; "
         f"status age {_show(age_s(cur, 'serving-status'), ' s')}",
-        f"SQL         ClickHouse {_show(_get(inside, 'sql', 'version'))}; rows "
-        f"{_show(_get(inside, 'sql', 'physical_rows'))}; distinct inputs "
-        f"{_show(_get(inside, 'sql', 'distinct_inputs'))}; max input offset "
-        f"{_show(_get(inside, 'sql', 'max_input_offset'))}; error "
+        f"SQL         ClickHouse {_show(field(inside, 'sql', 'version'))}; rows "
+        f"{_show(field(inside, 'sql', 'physical_rows'))}; distinct inputs "
+        f"{_show(field(inside, 'sql', 'distinct_inputs'))}; max input offset "
+        f"{_show(field(inside, 'sql', 'max_input_offset'))}; error "
         f"{sql_error}",
-        f"Storage     SeaweedFS S3 answers {_show(_get(inside, 's3_answers'))}",
-        f"Grafana     /api/health database {_show(_get(cur, 'grafana', 'database'))} "
-        f"(version {_show(_get(cur, 'grafana', 'version'))}); datasource query is a"
+        f"Storage     SeaweedFS S3 answers {_show(field(inside, 's3_answers'))}",
+        f"Grafana     /api/health database {_show(field(cur, 'grafana', 'database'))} "
+        f"(version {_show(field(cur, 'grafana', 'version'))}); datasource query is a"
         " manual signed-in check",
     ]
     if source == "live":
-        view = _get(inside, "sql", "live_state") or {}
+        view = field(inside, "sql", "live_state") or {}
         lines.append(
-            f"Live state  connection {_show(_get(view, 'connection'))}; source "
-            f"receipt age {_show(_get(view, 'source_receipt_age_ms'), ' ms')}; "
-            f"collector age {_show(_get(view, 'collector_age_ms'), ' ms')}"
+            f"Live state  connection {_show(field(view, 'connection'))}; source "
+            f"receipt age {_show(field(view, 'source_receipt_age_ms'), ' ms')}; "
+            f"collector age {_show(field(view, 'collector_age_ms'), ' ms')}"
         )
-    markers = _get(inside, "markers") or {}
+    markers = field(inside, "markers") or {}
     lines.append(
         "Completion  "
         + ", ".join(f"{k} {_show(v)}" for k, v in cast(Document, markers).items())

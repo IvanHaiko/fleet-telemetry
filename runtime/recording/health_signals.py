@@ -26,7 +26,7 @@ from runtime.recording.health import (
     STATUS_AGE_WARN_S,
     operator_counters,
 )
-from runtime.recording.ops_view import _get, _number, age_s
+from runtime.recording.ops_view import age_s, field, number_at
 
 type Document = dict[str, object]
 UNKNOWN = "unknown"
@@ -145,10 +145,10 @@ def _input_end(
         "at completion; running: F09 end <= declared, live end >= the count the "
         "current gateway epoch acknowledged"
     )
-    declared = _get(health, "declared", "deliveries")
+    declared = field(health, "declared", "deliveries")
     if source == "live":
-        declared = _get(inside, "gateway_final_published")
-        acked = _get(inside, "progress", "gateway-status", "published")
+        declared = field(inside, "gateway_final_published")
+        acked = field(inside, "progress", "gateway-status", "published")
         if not isinstance(declared, int):
             # The final count exists only after completion. While running, the
             # gateway reports what it acknowledged in its current epoch, written
@@ -181,16 +181,16 @@ def _input_end(
 def evaluate(snap: Document, health: Document) -> list[Document]:
     source = str(health.get("source"))
     inside = cast(Document, snap.get("inside") or {})
-    complete = _get(inside, "markers", "serving-complete") is True
-    end = _number(inside, "kafka", "input_end")
-    archived = _number(inside, "progress", "archive-status", "input_next")
-    served = _number(inside, "progress", "serving-status", "input_archived")
+    complete = field(inside, "markers", "serving-complete") is True
+    end = number_at(inside, "kafka", "input_end")
+    archived = number_at(inside, "progress", "archive-status", "input_next")
+    served = number_at(inside, "progress", "serving-status", "input_archived")
     rows = [_admission(source, cast(Document, health.get("admission") or {}))]
     rows.append(
         _dispositions(source, cast(Document, health.get("flink") or {}), complete)
     )
-    physical = _number(inside, "sql", "physical_rows")
-    logical = _number(inside, "sql", "distinct_inputs")
+    physical = number_at(inside, "sql", "physical_rows")
+    logical = number_at(inside, "sql", "distinct_inputs")
     ratio = None if not physical or not logical else round(physical / logical, 3)
     rows.append(
         _signal(
@@ -239,8 +239,8 @@ def evaluate(snap: Document, health: Document) -> list[Document]:
             ),
         )
     )
-    job = cast(Document, _get(snap, "flink", "job") or {})
-    failed, latest = job.get("failed"), _number(job, "latest_age_s")
+    job = cast(Document, field(snap, "flink", "job") or {})
+    failed, latest = job.get("failed"), number_at(job, "latest_age_s")
     rows.append(
         _signal(
             "checkpoints",
@@ -258,7 +258,7 @@ def evaluate(snap: Document, health: Document) -> list[Document]:
             else ("ok" if failed <= EXPECTED_CHECKPOINT_FAILURES else "warn"),
         )
     )
-    restarts = _get(health, "flink", "restarts")
+    restarts = field(health, "flink", "restarts")
     rows.append(
         _signal(
             "job_restarts",
@@ -281,12 +281,12 @@ def evaluate(snap: Document, health: Document) -> list[Document]:
 
 
 def _kafka(snap: Document, health: Document) -> list[Document]:
-    unavailable = _get(health, "kafka", "unavailable")
-    healthy = _get(snap, "containers", "kafka", "health") == "healthy"
-    identity = _get(snap, "inside", "kafka", "identity_ok") is True
-    groups = cast(dict[str, int] | None, _get(health, "kafka", "groups"))
+    unavailable = field(health, "kafka", "unavailable")
+    healthy = field(snap, "containers", "kafka", "health") == "healthy"
+    identity = field(snap, "inside", "kafka", "identity_ok") is True
+    groups = cast(dict[str, int] | None, field(health, "kafka", "groups"))
     lag = max(groups.values()) if groups else None
-    size = _get(health, "kafka", "topic_bytes")
+    size = field(health, "kafka", "topic_bytes")
     return [
         _signal(
             "kafka_broker",

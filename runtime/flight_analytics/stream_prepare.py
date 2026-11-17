@@ -44,7 +44,7 @@ from runtime.flight_analytics.stream_contract import (
     limitations,
     timeline,
 )
-from runtime.flight_analytics.stream_source import _verify_prepared
+from runtime.flight_analytics.stream_source import verify_prepared
 from telemetry.admission import admit_original
 from telemetry.conversion_contract import (
     integer_value,
@@ -92,7 +92,7 @@ __all__ = [
     "_validate_context",
     "_validate_inventory",
     "timeline",
-    "_verify_prepared",
+    "verify_prepared",
 ]
 
 
@@ -112,7 +112,7 @@ def prepare(
     _scope(run_id, start_us, end_us)
     _integer(max_events, 1, MAX_EVENTS)
     _integer(max_bytes, 1, MAX_BYTES)
-    gps, battery, states, count, gaps, inventory = _verify_prepared(prepared, source)
+    gps, battery, states, count, gaps, inventory = verify_prepared(prepared, source)
     source_ref = object_value(inventory["source.ulog"])
     registered = recording("sha256:" + string_value(source_ref["sha256"]))
     events, context = timeline(

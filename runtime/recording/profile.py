@@ -23,11 +23,10 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
-PROJECT = "fleet-recording-local"
+PROJECT = os.environ.get("COMPOSE_PROJECT_NAME") or "fleet-recording-local"
 REST = "http://127.0.0.1:18082"
 WORKER_IMAGE = "fleet-telemetry/recording-worker:0.1.0"
 SERVICES = ("kafka", "jobmanager", "taskmanager", "archive", "serving")
-WORKERS = ("archive-worker", "serving-worker", "publisher")
 
 type Document = dict[str, object]
 
@@ -60,6 +59,8 @@ class Profile:
     def compose(self) -> list[str]:
         return [
             "compose",
+            "--project-name",
+            PROJECT,
             "-f",
             str(ROOT / "compose/recording.yml"),
             "--env-file",

@@ -17,7 +17,7 @@ x-hardened: &hardened
 
 x-flink: &flink
   <<: *hardened
-  image: fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956
+  image: ${RECORDING_FLINK_IMAGE:-fleet-telemetry/recording-flink@sha256:48b7eb2aa98e49b2c50099e7e04d74c61f34acb4a174bb4180ad7ec30c17d2a1}
   platform: linux/amd64
   pull_policy: never
   user: "10001:10001"

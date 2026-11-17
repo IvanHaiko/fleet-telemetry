@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
 
-PROJECT = "fleet-recording-local"
+PROJECT = os.environ.get("COMPOSE_PROJECT_NAME") or "fleet-recording-local"
 
 
 def docker(*args: str) -> str:

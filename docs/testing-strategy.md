@@ -1,5 +1,45 @@
 # Testing strategy and evidence
 
+## Refactoring checks, 18 November 2026
+
+| Group and decision | Boundary exercised | Local result |
+| --- | --- | --- |
+| Keep root pytest on Windows, Python 3.13 | Reader, identity, replay, SDK startup, fixtures and SQL projection | Before cleanup, 745 passed and 6 skipped in 28.80 s. With the isolated ClickHouse test enabled after cleanup, 746 passed and 5 skipped in 28.34 s. |
+| Keep Linux worker and symlink tests | Repeated SQL writes across a lost cursor, ambiguous inserts, refusal of symlink inputs | The three affected root modules passed all 12 tests in 2.27 s on Linux. Windows skips the POSIX worker module, three Linux cases and the symlink check. |
+| Repair offline M4 discovery on Linux, keep all cases | Child process lifetime, retention, immutable storage, archive readback, SQL projection and sink reconciliation | The first Linux run discovered 107 tests in 4.059 s and had four setup errors. Passing the runner's fresh scratch path to the children gave 107 passes in 7.120 s. Windows discovered 107 in 1.844 s with seven skips (one symlink, three native publication and three POSIX process-group cases). |
+| Keep isolated PyFlink suite | Native operator, timers, partition routing and real bundled Python execution | 98 passed in 100.23 s. The 53 warnings include dependency deprecations and a cancelled Beam gRPC stream in a background thread. |
+| Keep the upstream Kafka UUID regression fixture | Independent patch-package verification | Nine of ten entries match the contribution's SHA256SUMS, including the fixture. The contribution README already differed at the source baseline. Preserve the historical manifest. |
+
+Use `python -m pytest -q` in the root environment for the first group.
+The native Kafka cases need the Kafka extra. Their subprocesses import the
+SDK and exercise separate creation, restart, quarantine and policy outcomes.
+The optional gold SQL case needs a new empty local ClickHouse with
+`GOLD_TEST_CLICKHOUSE_PORT` set to its published loopback port. The health
+SQL tests use the digest-pinned local ClickHouse image. State-access mock
+counts in `test_recording_operator_state.py` guard the per-event work bound,
+which an equality check on emitted facts alone would miss. Keep that test
+with the root suite and run actual Flink separately.
+
+On Linux with the locked development tools for Python 3.13, run
+`python scripts/check-m4.py` and
+`python -m pytest -q tests/test_recording_serving_gap.py tests/test_continuous_serving.py tests/test_recording_stream_prepare.py`.
+The local M4 result used Debian trixie in a container. The hosted Ubuntu CI
+result requires a published revision.
+
+Run the following from the repository root in PowerShell for the PyFlink
+suite. The embedded Java gateway requires a username and a resolvable
+hostname. In the isolated image, missing those settings caused 11 failures
+at gateway startup, then a hostname-resolution failure on the retry.
+
+```powershell
+$image = 'fleet-telemetry/recording-flink@sha256:48b7eb2aa98e49b2c50099e7e04d74c61f34acb4a174bb4180ad7ec30c17d2a1'
+docker run --rm --network none --hostname localhost --tmpfs /tmp:exec,size=3g `
+  --mount "type=bind,source=$((Get-Location).Path),target=/workspace,readonly" `
+  --env USER=flink --env HOME=/tmp --env FLINK_LOG_DIR=/tmp `
+  --env OPENBLAS_NUM_THREADS=1 --env OMP_NUM_THREADS=1 --entrypoint python `
+  $image -m pytest -q -p no:cacheprovider runtime/pyflink
+```
+
 ## Recording operations and restoration, 2026-11-16
 
 [ADR-0055](adr/0055-recording-operations-and-restoration.md) adds three

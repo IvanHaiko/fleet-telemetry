@@ -34,3 +34,6 @@ jobs:
         run: python -m pip install --disable-pip-version-check uv==0.11.19
       - name: Check locked environment and M1 behavior
         run: python scripts/check-m1.py --profile '${{ matrix.profile }}'
+      - name: Check offline archive and serving behavior
+        if: matrix.os == 'ubuntu-24.04' && matrix.profile == 'synthetic'
+        run: uv run --no-sync python scripts/check-m4.py
