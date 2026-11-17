@@ -1,5 +1,87 @@
 # Development roadmap
 
+## Next steps after the MVP evidence runs, 2026-11-17
+
+This section orders the work that follows the integrated MVP below. The
+[design notes](ulog-replay-and-monitoring.md) carry the background and the
+reviewed alternatives. Each step ends in one observable result; finish it
+before starting the next. This list authorizes no new service, dependency,
+dataset download, commit or publication.
+
+Before step 1 the maintainer decides MVP acceptance on the recorded results
+(see *Single-machine MVP readiness* below): accept them as they stand, or first
+repeat a final run or measure capture-to-browser time directly.
+
+1. **Offline inventory of any structurally valid ULog.** One local command,
+   with no Kafka, Flink, ClickHouse or Grafana, returns one row per
+   subscription with topic, instance, field names and types, sample count and
+   mapping status, plus a short summary of the views the file supports. It has
+   its own structural admission policy: published format versions, features
+   and input limits, and an explicit `incomplete` or `unsupported` result with
+   a reason. It reuses bounded frame and layout decoding from
+   `ulog_integrity.py` but not its F09-specific allowances. Dropout markers are
+   reported apart from sample counts. A missing subscription, an empty one, an
+   unknown mapping and samples rejected by a reviewed mapping stay distinct.
+   Interpreted values appear only where an existing reviewed path admits them.
+   *Acceptance:* on F01 the report explains the empty map (GPS subscribed, zero
+   samples), the empty battery panel (no subscription) and the 41 land-detector
+   and 77 commander samples. On a synthetic fixture built with
+   `tests/ulog_binary.py`, holding a custom topic in two instances and no GPS,
+   the same command lists both instance counts and their fields without a
+   registry edit.
+2. **Explain why a value stopped updating.** `ops status`, `health.json` and
+   the *Run health* panel show source mode, last source progress, archive
+   progress and last query-visible progress together, each in a clock
+   ADR-0054 already qualifies. Three cases must produce distinct explanations:
+   source silent (live receipts age while the gateway is healthy; missing
+   gateway health is `unknown`), replay paused or ended (explicit publisher
+   state and last acknowledged position; end of file plus reconciled counts is
+   completion), and serving behind (input and archive advance while
+   query-visible progress stays fixed). Browser delay is `unknown` while it is
+   not measured. The F09 publisher has no explicit paused/ended state and the
+   fault orchestrator has `archive-pause` but no serving pause; both are new.
+   *Acceptance:* one F09 drill with a detection interval declared in advance
+   pauses serving while input and archive advance, then the publisher, and
+   reaches the end of file; each phase shows its own explanation. After
+   resuming, SQL reconciles with the F09 reference. One live debug session
+   shows the source-silent case. On-demand evaluation stays (ADR-0056);
+   unattended alerting waits until someone must respond while nobody watches,
+   and then needs its own decision against the ADR-0034 Prometheus path.
+3. **Admit a compatible recording without a per-file registry entry.** Start
+   this step when a second flight needs the reviewed analytics, through a
+   successor to the ADR-0057 admission rule. A file is admitted when the
+   selected topics' definition hashes (including referenced layouts) **and** a
+   reviewed firmware revision or evidenced range match a versioned mapping
+   profile. Unknown firmware, a missing required topic or an unsupported
+   definition gives a reason per unavailable capability; the file stays
+   inspectable through step 1. The SHA-256 of each original still provides
+   provenance and source identity, and record counts are measured per file.
+   Registered runs keep their legacy recipes.
+   *Acceptance:* a derived copy of F09 (cut at a frame boundary or with a
+   changed unselected info value, so its digest differs while layouts and
+   firmware match) is admitted under the mapping profile with distinct source
+   identities; the same copy with an unreviewed firmware revision stays
+   inspectable with the mapping unavailable; reprocessing F09 reproduces its
+   stored reference IDs and content. A real second flight on the same firmware
+   needs separate authorization to obtain it and a rights review.
+4. **Raw streaming of all recorded topics, only for a named consumer.** Do not
+   build a raw producer until a downstream consumer needs high-rate or custom
+   messages during replay. Then write an ADR first that settles, with evidence:
+   wire encoding (a round trip of maximum `uint64`, an array, NaN and both
+   infinities in the intended consumer; JSONL cannot carry them), schema
+   ownership (for example a checksummed definition manifest kept with the
+   archived original, readable during live replay and archive-only recovery),
+   volume and backpressure (peaks per topic and instance from the step 1
+   inventory against the 50,000-event and 64 MiB preparation bounds and the
+   local disk budget), and identity (file digest, topic, instance and
+   zero-based ordinal within the subscription allocated before filtering;
+   mapped measurement IDs derived from it must equal those of direct
+   preparation on the same fixture).
+
+Later, not scheduled: an estimate of the remaining intervention time before
+archive lag reaches a retention or disk limit, showing `unknown` when its
+inputs cannot be measured.
+
 ## Simple local installation priority, 2026-11-11
 
 The default user setup is now one computer, one Kafka broker, 12 partitions per
