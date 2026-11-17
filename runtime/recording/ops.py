@@ -257,6 +257,8 @@ def marker(run: Profile, name: str) -> bool:
 
 def complete(args: argparse.Namespace) -> Document:
     run, plan = load(args.run_id)
+    # From here the source and the workers exit; an exiting container samples 0 B.
+    run.log("completing")
     if plan["source"] == "live":
         run.docker("kill", "--signal", "USR1", run.container("live-gateway"))
         run.wait(lambda: marker(run, "gateway-complete"), 120, "gateway_not_completed")

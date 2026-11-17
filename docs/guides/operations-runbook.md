@@ -125,7 +125,7 @@ zero.
 | `source_admission` | live: lost packets or sequence gaps > 0 | F09 counts do not reconcile; live gateway refusal | `warn`: the loss is recorded, the run continues. `fail`: collect, stop, keep the run; check the prepared inputs or the gateway refusal category |
 | `processing_dispositions` | F09 complete with duplicates ≠ 2 (after a restore the counters restart) | rejected > 0 (the job fails with `recording_operator_refused`) | `fail`: collect; the job's exception history names the refusal |
 | `sql_repeats` | physical rows > 2 × facts | — | repeated serving retries; check the serving log for retries; `verify` still decides the logical result |
-| `kafka_input_end` | — | end ≠ declared deliveries at completion, or above them while running | collect and stop; compare the publisher ledger with `kafka.json` |
+| `kafka_input_end` | — | end ≠ declared deliveries at completion, or above them while running | collect and stop; compare the publisher ledger with `kafka.json`. While a live session runs, the end must be at least the count the current gateway epoch acknowledged (that count is per epoch and written every 0.5 s); equality with the final count is required at completion |
 | `archive_coverage` | lag > 1,000 deliveries or status older than 10 s | status older than 60 s; lag > 0 after completion | `warn`: watch two windows. `fail`: is `archive-worker` running? Start it; it continues from its cursor |
 | `serving_coverage` | as archive, against the archived prefix | as archive | start `serving-worker` or `resume` |
 | `checkpoints` | more than 1 failed (1 is the submission trigger) | latest completed older than 30 s | `fail`: check the TaskManager; `collect` before restarting anything |
@@ -305,12 +305,17 @@ old session (`ops complete`), verify and stop it, and start a new run.
 - Resources are sampled into `resources.jsonl` (memory bytes and share of the
   limit, CPU against the container's budget, both disks, every volume's size)
   during readiness and while `complete` waits (`--sample`, default 15 s).
+  `complete` logs `completing` before anything stops; after it, a container
+  sampled at 0 B is exiting (the gateway, the simulator and the workers end
+  on their own), not a missing measurement.
 - Peak memory on the complete F09 flight (2026-11-17), against compose limits:
   serving worker 442/512 MiB (86 %), Kafka 740/1,024 MiB (72 %), Grafana
   501/768 MiB (65 %), ClickHouse 1,165/2,048 MiB (57 %), TaskManager
   889/3,072 MiB (29 %); every other container below 46 %. The serving worker
   grows with the archived prefix and is the first to reach its limit on a
-  longer source.
+  longer source. On the five-minute live session Grafana rose to 721/768 MiB
+  (94 %) with the live dashboard open; watch the `memory` signal on longer
+  live sessions.
 - Capture to browser, computed rather than measured: SQL visibility (2.0 s on
   the complete flight) + one 2 s sample + the 5 s dashboard refresh + the
   slowest simultaneous panel query (2.1 s) ≈ 11 s. On the complete flight a

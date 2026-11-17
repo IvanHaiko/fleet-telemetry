@@ -4,7 +4,9 @@
 complete runs of step 5, on short debug runs and on one complete F09 run
 under a criterion the maintainer approved; that run failed its declared disk
 condition and passed every other one ([final run](#final-complete-flight-run-2026-11-17)).
-The live final session has not run yet.
+The five-minute live final session failed two conditions on defects of the
+signal and the criterion, not of the data ([live session](#final-live-session-2026-11-17));
+both are fixed and checked on a short live debug session, without a rerun.
 
 ## Problem
 
@@ -35,7 +37,7 @@ one *Run health* panel on each dashboard.
 | `source_admission` | F09: prepared battery run manifest, bundle manifest and context; live: gateway status | F09: source records = admitted + rejected, every rejection has a reason code → `ok`, else `fail`. Live: refusal → `fail`; lost packets or sequence gaps > 0 → `warn` |
 | `processing_dispositions` | the association operator's Flink counters (`accepted`, `duplicate`, `late`, `gps`/`position`, `rejected`) through the REST API | rejected > 0 → `fail`; F09 complete with duplicates ≠ 2 declared repeats → `warn` |
 | `sql_repeats` | SQL physical rows and distinct inputs | physical/logical > 2 → `warn`; identity conflicts are a quality check |
-| `kafka_input_end` | broker end offset | equals the declared deliveries at completion, else `fail` |
+| `kafka_input_end` | broker end offset | equals the declared deliveries (F09) or the gateway's final count (live) at completion, else `fail`; while running, F09 end ≤ declared, live end ≥ the count the current gateway epoch acknowledged |
 | `archive_coverage`, `serving_coverage` | archive and serving progress files against the broker end | complete: lag 0, else `fail`. Running: lag > 1,000 deliveries or status older than 10 s → `warn`; status older than 60 s → `fail` |
 | `checkpoints` | Flink REST | failed > 1 (the submission trigger of ADR-0052) → `warn`; latest completed older than 30 s → `fail` |
 | `job_restarts` | Flink REST `numRestarts` | > 0 → `warn`; no running job while Flink answers → `fail` |
@@ -205,6 +207,52 @@ removes it.
 The capture-to-browser time is computed, not measured: SQL visibility 2.0 s,
 plus one 2 s sample, plus the 5 s refresh, plus the slowest of 16 simultaneous
 panel queries, 2.1 s, about 11.1 s.
+
+## Final live session, 2026-11-17
+
+Run `live-s6-full-20261116-01`: one PX4 SITL session, 300 s after readiness,
+no faults, with the system-log override of the same day in place. Publishing
+started 81 s after `start`; serving complete 341 s later; 2,310 deliveries,
+1,650 positions.
+
+| Condition | Result |
+| --- | --- |
+| readiness | passed |
+| health at 150 s and after completion | **failed**: at mid-run `kafka_input_end` was `unknown`; after completion every signal was within the allowed states (memory `warn`) |
+| `ops verify` | passed: every published event captured, no sequence gap, SQL equals the archive-only recomputation, 0 logical repeats, statuses match receipt order |
+| resource samples | **failed**: 21 of 22 samples complete; the last one listed the gateway at 0 B while it shut down |
+| SQL visibility | passed: maximum 1.0 s (the sample interval) |
+| disk | passed: volumes grew 86.3 MB; run directory 20.1 MB |
+| dashboard, signed in | passed: *observed* during the session (receipt age 1.1 s); afterwards 5 rounds of 14 simultaneous queries without error, maximum 0.3 s; every panel rendered; *Run health* 11 × `ok` |
+| stop | passed |
+
+**Causes.** (1) For a live session `kafka_input_end` compares the broker end
+with the gateway's final published count, which exists only after completion,
+so the signal is `unknown` while any live session runs. At mid-run the gateway
+status reported 1,275 published in its single epoch, without loss or gaps,
+against a broker end of 1,277: consistent, but not the declared check. The
+orchestrator's live variant had not been exercised on a debug session, which
+is how the defect reached the final run. (2) `docker stats` reports 0 B for a
+container that is exiting; the condition counted the gateway that `ops
+complete` was stopping. Both are recorded as failed and not relabelled.
+
+**Fixes, same day.** (1) While a live session runs, `kafka_input_end` checks
+that the broker end is at least the count the gateway's current epoch reports
+as acknowledged; that count is per epoch and written every 0.5 s after the
+acknowledgement, so equality is required only at completion. (2) `ops complete`
+logs `completing` first; after it, a container sampled at 0 B is exiting and
+is not counted as a missing value. A live debug session
+(`live-s6-dbg-20261117-01`, about 90 s of publishing) showed `kafka_input_end`
+`ok` while running (429 at the broker, 427 acknowledged) and at completion
+(589 of 589), every other signal `ok` except broker metrics; it also showed
+the serving worker, not only the gateway, sampled at 0 B while exiting, which
+is why the rule covers any container rather than a named list. Neither final
+run was repeated.
+
+**Finding.** Grafana's memory rose from 66 % to 93.9 % of its 768 MiB limit
+in these minutes, with the live dashboard refreshing every 5 s and the
+signed-in check running; on the complete F09 run it peaked at 65 %. Whether
+it levels off was not measured.
 
 ## Consequences
 

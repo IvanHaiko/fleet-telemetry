@@ -45,8 +45,10 @@ CONDITIONS = [
     "ops verify passes with every check true",
     "resource samples: from ops start returning to serving-complete, no gap "
     "between consecutive samples exceeds the gap limit; every sample lists "
-    "memory bytes and limit for every running service container and the size "
-    "of every profile volume; no container reaches 95 % of its memory limit",
+    "memory bytes and limit for every running service container (0 B is "
+    "accepted only after ops complete begins, from a container that is exiting) "
+    "and the size of every profile volume; no container reaches 95 % of its "
+    "memory limit",
     "SQL visibility (observer, 2 s samples): every expected fact is observed and "
     "no fact's acknowledgement-to-visibility interval exceeds the visibility limit",
     "disk: the profile volumes grow by at most the run budget between the first "
@@ -180,12 +182,24 @@ def _resources(out: Path, criterion_doc: Document) -> tuple[bool, Document]:
     window = [r for r in rows if ready - 30_000 <= r["host_ms"] <= done + 30_000]
     times = [r["host_ms"] for r in window]
     gaps = [(b - a) / 1000 for a, b in zip(times, times[1:], strict=False)]
+    # Once `ops complete` begins, the source and the workers exit when done;
+    # docker stats reports 0 B for a container that is exiting.
+    completing = next(
+        (e["host_ms"] for e in events if e["event"] == "completing"), None
+    )
+
+    def measured(r: Document, c: Document) -> bool:
+        exiting = (
+            completing is not None
+            and r["host_ms"] >= completing
+            and c.get("memory_bytes") == 0
+        )
+        return bool(c.get("memory_limit")) and (exiting or bool(c.get("memory_bytes")))
+
     complete = bool(window) and all(
         set(r.get("volumes") or {}) >= {*VOLUMES, "state"}
         and r.get("containers")
-        and all(
-            c.get("memory_bytes") and c.get("memory_limit") for c in r["containers"]
-        )
+        and all(measured(r, c) for c in r["containers"])
         for r in window
     )
     peaks: dict[str, Document] = {}

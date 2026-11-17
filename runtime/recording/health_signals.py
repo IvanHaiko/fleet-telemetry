@@ -134,6 +134,48 @@ def _dispositions(source: str, flink: Document, complete: bool) -> Document:
     )
 
 
+def _input_end(
+    source: str, inside: Document, health: Document, end: float | None, complete: bool
+) -> Document:
+    name, origin = "kafka_input_end", "broker end offset"
+    threshold = (
+        "equals the declared deliveries (F09) or the gateway's final count (live) "
+        "at completion; running: F09 end <= declared, live end >= the count the "
+        "current gateway epoch acknowledged"
+    )
+    declared = _get(health, "declared", "deliveries")
+    if source == "live":
+        declared = _get(inside, "gateway_final_published")
+        acked = _get(inside, "progress", "gateway-status", "published")
+        if not isinstance(declared, int):
+            # The final count exists only after completion. While running, the
+            # gateway reports what it acknowledged in its current epoch, written
+            # every 0.5 s after the acknowledgement: the broker holds at least that.
+            return _signal(
+                name,
+                origin,
+                threshold,
+                None
+                if end is None
+                else f"{int(end)}; current gateway epoch acknowledged "
+                f"{UNKNOWN if acked is None else acked}",
+                UNKNOWN
+                if end is None or not isinstance(acked, int)
+                else ("ok" if end >= acked else "fail"),
+            )
+    return _signal(
+        name,
+        origin,
+        threshold,
+        None if end is None else f"{int(end)} of {declared or UNKNOWN}",
+        UNKNOWN
+        if end is None or not isinstance(declared, int)
+        else (
+            "ok" if end == declared or (not complete and end <= declared) else "fail"
+        ),
+    )
+
+
 def evaluate(snap: Document, health: Document) -> list[Document]:
     source = str(health.get("source"))
     inside = cast(Document, snap.get("inside") or {})
@@ -161,24 +203,7 @@ def evaluate(snap: Document, health: Document) -> list[Document]:
             else ("ok" if ratio <= REPEAT_RATIO_WARN else "warn"),
         )
     )
-    declared = _get(health, "declared", "deliveries")
-    if source == "live":
-        declared = _get(inside, "gateway_final_published")
-    rows.append(
-        _signal(
-            "kafka_input_end",
-            "broker end offset",
-            "equals the declared deliveries at completion",
-            None if end is None else f"{int(end)} of {declared or UNKNOWN}",
-            UNKNOWN
-            if end is None or not isinstance(declared, int)
-            else (
-                "ok"
-                if end == declared or (not complete and end <= declared)
-                else "fail"
-            ),
-        )
-    )
+    rows.append(_input_end(source, inside, health, end, complete))
     archive_age = age_s(snap, "archive-status")
     rows.append(
         _signal(

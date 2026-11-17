@@ -308,3 +308,59 @@ def test_a_completed_run_needs_complete_coverage() -> None:
     assert isinstance(inside, dict)
     inside["markers"] = {"serving-complete": True}
     assert _signals(case["snap"], case["health"])["archive_coverage"] == "fail"
+
+
+@pytest.mark.parametrize(
+    ("final", "acked", "expected"),
+    [
+        (None, 1275, "ok"),
+        (None, 1278, "fail"),
+        (None, None, "unknown"),
+        (1277, 1277, "ok"),
+    ],
+)
+def test_live_input_end_while_running_and_at_completion(
+    final: int | None, acked: int | None, expected: str
+) -> None:
+    # The gateway's count is per epoch and written after the acknowledgement,
+    # so a running broker end may exceed it; the final count must be equal.
+    snap: dict[str, object] = {
+        "inside": {
+            "kafka": {"input_end": 1277},
+            "progress": {"gateway-status": {"published": acked}},
+            "gateway_final_published": final,
+            "markers": {"serving-complete": final is not None},
+        }
+    }
+    states = _signals(snap, {"source": "live"})
+    assert states["kafka_input_end"] == expected
+
+
+@pytest.mark.parametrize(("signalled", "passed"), [(True, True), (False, False)])
+def test_a_container_stopped_by_completion_may_report_zero_memory(
+    tmp_path: Path, signalled: bool, passed: bool
+) -> None:
+    from runtime.recording.mvp_run import VOLUMES, _resources
+
+    events = [{"event": "ready", "host_ms": 0}]
+    events += [{"event": "completing", "host_ms": 25_000}] * signalled
+    events += [{"event": "serving_complete", "host_ms": 40_000}]
+    rows = [
+        {
+            "host_ms": t,
+            "volumes": dict.fromkeys((*VOLUMES, "state"), "1MB"),
+            "containers": [
+                {
+                    "service": "live-gateway",
+                    "memory_bytes": 0 if t >= 30_000 else 1 << 20,
+                    "memory_limit": 1 << 28,
+                    "memory_pct": 0.0,
+                }
+            ],
+        }
+        for t in range(0, 45_000, 15_000)
+    ]
+    for name, lines in (("events.jsonl", events), ("resources.jsonl", rows)):
+        (tmp_path / name).write_text("".join(json.dumps(x) + "\n" for x in lines))
+    ok, _ = _resources(tmp_path, {"sample_gap_limit_s": 30.0})
+    assert ok is passed
