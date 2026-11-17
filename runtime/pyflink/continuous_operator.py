@@ -21,7 +21,7 @@ from pyflink.datastream.state import (
     ValueStateDescriptor,
 )
 from telemetry.conversion_contract import SEMANTIC_FIELDS
-from telemetry.serving_projection import _semantic_json
+from telemetry.serving_projection import semantic_json
 from telemetry_reader import EnvelopeError, read_battery_event
 from telemetry_reference import epoch_milliseconds
 
@@ -61,7 +61,7 @@ def packet(kind: str, run: str, **values: object) -> str:
 def semantic(event: Document) -> str:
     value = {key: event[key] for key in SEMANTIC_FIELDS}
     value["quality_flags"] = sorted(cast(list[str], event["quality_flags"]))
-    return _semantic_json(value)
+    return semantic_json(value)
 
 
 class Gate(ProcessFunction):

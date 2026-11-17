@@ -319,6 +319,15 @@ the whole profile stopped without warning:
 .venv/Scripts/python.exe -m runtime.recording.ops status --run-id <run>
 ```
 
+Runs started before Compose selected the `recording-flink` image
+([ADR-0061](../adr/0061-recording-flink-image.md)) hold checkpoints written by
+`pyflink-m3:2.2.1-local2`. Restoring those checkpoints with the new image was
+not tested. Before resuming such a run, set `$env:RECORDING_FLINK_IMAGE` in
+that PowerShell session to the
+[rollback reference](f09-single-machine-run.md#building-the-recording-flink-candidate).
+The variable stays set for the session. Remove it with
+`Remove-Item Env:RECORDING_FLINK_IMAGE` before starting a new run.
+
 `resume` performs these steps and logs each one to `events.jsonl`:
 
 1. starts the services and waits for a healthy broker, a free Flink slot and

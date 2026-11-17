@@ -1,0 +1,6 @@
+{
+  "profile": "m3-kafka-31006-backport-v1",
+  "original_sha256": "5605c691d11a501382c383fecba37a7a552467da5ab7ba904ef5d6f3d62c5616",
+  "patched_sha256": "01d49d99e184229f80da2cf674d3843ca9419ec7542f36f57205a8bf43885497",
+  "source_sha256": "0b27ea0d45614eeda375148d56da13c8c13137eb353bc490866768e6eff57cce"
+}

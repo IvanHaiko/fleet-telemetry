@@ -10,19 +10,16 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from telemetry.continuous_connection import LOCAL_ENDPOINTS, parse_connection
 from telemetry.kafka_compat import require_uuid_boundary
+from telemetry.kafka_protocols import Error as Error
 
 if TYPE_CHECKING:
-    from scripts.m3_transport_types import (
+    from telemetry.kafka_protocols import (
         Admin,
         AdminModule,
         ClusterDescription,
         Producer,
         TopicDescription,
     )
-
-
-class Error(Protocol):
-    def code(self) -> int: ...
 
 
 class Position(Protocol):

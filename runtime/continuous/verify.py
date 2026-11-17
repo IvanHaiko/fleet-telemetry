@@ -20,7 +20,7 @@ from telemetry.continuous_archive import (
     segment_rows,
 )
 from telemetry.conversion_contract import SEMANTIC_FIELDS
-from telemetry.serving_projection import _semantic_json
+from telemetry.serving_projection import semantic_json
 from telemetry_reference import epoch_milliseconds
 
 METRICS = ("voltage_v", "current_a", "remaining_fraction")
@@ -142,7 +142,7 @@ def verify(config_path: Path, state: Path, ledger: Path, output: Path) -> None:
                 meaning = {key: event[key] for key in SEMANTIC_FIELDS}
                 meaning["quality_flags"] = sorted(event["quality_flags"])
                 require(
-                    fact["semantic_json"] == _semantic_json(meaning),
+                    fact["semantic_json"] == semantic_json(meaning),
                     "serving_semantic_content_mismatch",
                 )
                 expected = db.execute(

@@ -273,6 +273,24 @@ def _parse_integer(value: str) -> int:
     return int(value)
 
 
+def parse_archive_json(body: bytes) -> object:
+    """Decode bounded-depth archive JSON with unique keys and integer numbers."""
+    _nesting(body)
+    try:
+        value: object = json.loads(
+            body,
+            object_pairs_hook=_pairs,
+            parse_float=_reject_number,
+            parse_constant=_reject_number,
+            parse_int=_parse_integer,
+        )
+        return value
+    except ArchiveError:
+        raise
+    except (ValueError, UnicodeError, RecursionError):
+        _fail()
+
+
 def decode_observations(data: bytes) -> tuple[dict[str, object], ...]:
     """Require canonical JSONL, returning fresh nested observation structures."""
     if type(data) is not bytes or not data or not data.endswith(b"\n"):
@@ -285,19 +303,7 @@ def decode_observations(data: bytes) -> tuple[dict[str, object], ...]:
     for line in data.split(b"\n")[:-1]:
         if len(line) + 1 > _LINE:
             _fail("limit_exceeded", "line")
-        _nesting(line)
-        try:
-            parsed: object = json.loads(
-                line,
-                object_pairs_hook=_pairs,
-                parse_float=_reject_number,
-                parse_constant=_reject_number,
-                parse_int=_parse_integer,
-            )
-        except (ValueError, UnicodeError, RecursionError):
-            # Preserve our fixed categories, including bounds from hooks.
-            _fail()
-        rows.append(_row(parsed))
+        rows.append(_row(parse_archive_json(line)))
     canonical = encode_observations(rows)
     if canonical != data:
         _fail()

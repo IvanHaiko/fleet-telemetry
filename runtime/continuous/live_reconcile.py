@@ -31,7 +31,7 @@ from pathlib import Path
 from tempfile import mkdtemp
 
 from runtime.clickhouse.transport import HttpConfig, _request
-from runtime.continuous.live_worker import ArchivedFacts
+from runtime.continuous.live_archive_gate import ArchivedFacts
 from runtime.continuous.recording_config import require, storage
 from telemetry.archive_documents import canonical, digest
 from telemetry.continuous_archive import segment_rows

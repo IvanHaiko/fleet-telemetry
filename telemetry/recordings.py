@@ -347,15 +347,6 @@ def recording_by_key(key: object) -> Recording:
     return BY_KEY[key]
 
 
-def by_profile(profile: object, suffix: str) -> Recording:
-    """Resolve a versioned name such as ``f07-recording-event-v1``."""
-    if isinstance(profile, str):
-        for item in RECORDINGS.values():
-            if profile == item.name(suffix):
-                return item
-    raise ValueError("unregistered_recording_profile")
-
-
 def by_battery_normalization(version: object) -> tuple[Recording | None, bool]:
     """(registered recording, is a mapping-profile name) for a version string."""
     if isinstance(version, str):

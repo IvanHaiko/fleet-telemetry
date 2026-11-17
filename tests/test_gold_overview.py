@@ -11,7 +11,7 @@ import pytest
 from runtime.clickhouse.transport import HttpConfig
 from runtime.continuous import gold
 from telemetry.conversion_contract import SEMANTIC_FIELDS
-from telemetry.serving_projection import _semantic_json
+from telemetry.serving_projection import semantic_json
 from telemetry_reader import read_battery_event
 
 
@@ -35,7 +35,7 @@ def fact(
         field: cast(dict[str, object], admitted)[field] for field in SEMANTIC_FIELDS
     }
     semantic["quality_flags"] = sorted(admitted["quality_flags"])
-    encoded = _semantic_json(semantic)
+    encoded = semantic_json(semantic)
     packet = {
         "format_version": "continuous-processing-v1",
         "run_id": admitted["delivery"]["dataset_run_id"],

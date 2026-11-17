@@ -10,7 +10,7 @@ import pytest
 from runtime.continuous.gold import overview
 from telemetry.conversion_contract import SEMANTIC_FIELDS
 from telemetry.position_file import adapt, read_position
-from telemetry.serving_projection import _semantic_json
+from telemetry.serving_projection import semantic_json
 
 
 def source() -> bytes:
@@ -30,7 +30,7 @@ def source() -> bytes:
 
 def fact(event: dict[str, object], offset: int = 0) -> dict[str, object]:
     semantic = {field: event[field] for field in SEMANTIC_FIELDS}
-    encoded = _semantic_json(semantic)
+    encoded = semantic_json(semantic)
     packet = {
         "format_version": "continuous-processing-v1",
         "run_id": "test-run",

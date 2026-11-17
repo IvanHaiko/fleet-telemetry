@@ -6,6 +6,7 @@ decode telemetry values or infer completeness before source registration.
 
 import re
 import struct
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from hashlib import sha256
 
@@ -17,8 +18,6 @@ F09_SOURCE_ID = F09.source_id
 F01_SOURCE_ID = (
     "sha256:36e54ff7c13619f96c9fb56a74c9fb3efb0650600881412a9363f00a65d7141b"
 )
-F09_MAX_INPUT_BYTES = F09.max_input_bytes
-F09_MAX_RECORDS = F09.max_records
 MAX_NESTING_DEPTH = 32
 MAX_EXPANDED_FIELDS = 4096
 MAX_SUBSCRIBED_FIELDS = 100_000
@@ -262,6 +261,24 @@ def _info(
     return kind, key, value
 
 
+def _frames(data: bytes, frame_limit: int) -> Iterator[tuple[int, int, bytes]]:
+    """Yield complete frames after the verified 16-byte file header."""
+    frame_count = 0
+    offset = 16
+    while offset < len(data):
+        frame_count += 1
+        if frame_count > frame_limit:
+            raise InputIntegrityError("record_count_limit", offset)
+        if len(data) - offset < 3:
+            raise InputIntegrityError("truncated_message_header", offset)
+        size, kind = struct.unpack_from("<HB", data, offset)
+        end = offset + 3 + size
+        if end > len(data):
+            raise InputIntegrityError("truncated_message_payload", offset)
+        yield offset, kind, data[offset + 3 : end]
+        offset = end
+
+
 def inspect_ulog(data: bytes, expectation: ULogExpectation) -> ULogInspection:
     """Validate registered bytes and all frames before exposing stream ordinals.
 
@@ -315,19 +332,8 @@ def inspect_ulog(data: bytes, expectation: ULogExpectation) -> ULogInspection:
     dropout_count = 0
     dropout_duration = 0
     flags_seen = False
-    frame_count = 0
-    offset = 16
-    while offset < len(data):
-        frame_count += 1
-        if frame_count > frame_limit:
-            raise InputIntegrityError("record_count_limit", offset)
-        if len(data) - offset < 3:
-            raise InputIntegrityError("truncated_message_header", offset)
-        size, kind = struct.unpack_from("<HB", data, offset)
-        end = offset + 3 + size
-        if end > len(data):
-            raise InputIntegrityError("truncated_message_payload", offset)
-        payload = data[offset + 3 : end]
+    for offset, kind, payload in _frames(data, frame_limit):
+        size = len(payload)
         if kind == ord("B"):
             if offset != 16 or flags_seen:
                 raise InputIntegrityError("invalid_flags_position", offset)
@@ -442,7 +448,6 @@ def inspect_ulog(data: bytes, expectation: ULogExpectation) -> ULogInspection:
             raise InputIntegrityError("unsupported_subscription_removal", offset)
         else:
             raise InputIntegrityError("unsupported_message_kind", offset)
-        offset = end
 
     if layouts is None:
         _resolve_layouts(definitions)

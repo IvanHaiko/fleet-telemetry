@@ -22,6 +22,7 @@ the profile described in its report, not every runtime in this repository.
 | [Data contracts](data-contracts.md) | Identity, units, clocks, missing values and compatibility |
 | [Roadmap](roadmap.md) | Current state, next steps and milestone status; earlier plans in the [history](roadmap-history.md) |
 | [Testing strategy](testing-strategy.md) | Invariants and required evidence |
+| [Refactoring plan](refactoring-plan.md) | Recording image replacement, audit cleanup, code structure and test review |
 | [Deployment](deployment-and-terraform.md) | Local runtime, resource/security boundaries and the cloud gate |
 | [Architecture decisions](adr/) | Accepted and proposed choices with their consequences |
 

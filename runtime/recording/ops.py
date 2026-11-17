@@ -60,8 +60,6 @@ from runtime.recording.stall import render as render_why
 from runtime.recording.stored_view import view
 from telemetry.admission import AdmissionRefused
 
-LIVE_SERVICES = ("live-archive-worker", "live-serving-worker", "live-gateway")
-
 
 def scope(run_id: str) -> tuple[Path, Path]:
     require(re.fullmatch(r"[a-z0-9][a-z0-9-]{2,39}", run_id), "run_id")

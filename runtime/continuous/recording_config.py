@@ -97,18 +97,21 @@ def storage(config: Document, role: str) -> ArchiveStore:
     )
 
 
-def sql_client(config: Document) -> RecordingSQL:
-    def connection(role: str) -> HttpConfig:
-        row = object_value(config[role])
-        return HttpConfig(
-            integer_value(row["port"]),
-            string_value(row["database"]),
-            string_value(row["user"]),
-            string_value(row["password"]),
-            15,
-        )
+def sql_connection(config: Document, role: str) -> HttpConfig:
+    row = object_value(config[role])
+    return HttpConfig(
+        integer_value(row["port"]),
+        string_value(row["database"]),
+        string_value(row["user"]),
+        string_value(row["password"]),
+        15,
+    )
 
-    return RecordingSQL(connection("sql_admin"), connection("sql_reader"))
+
+def sql_client(config: Document) -> RecordingSQL:
+    return RecordingSQL(
+        sql_connection(config, "sql_admin"), sql_connection(config, "sql_reader")
+    )
 
 
 def lifetime(config: Document) -> tuple[Callable[[], bool], float]:

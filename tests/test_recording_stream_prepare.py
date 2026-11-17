@@ -374,7 +374,7 @@ def test_interrupted_seal_retains_partial_evidence_without_completion_manifest(
     def interrupted(stage: Path, target: Path) -> None:
         raise OSError("authored publication interruption")
 
-    monkeypatch.setattr(subject, "_verify_prepared", retained)
+    monkeypatch.setattr(subject, "verify_prepared", retained)
     monkeypatch.setattr(subject, "publish_run", interrupted)
     bounded = tmp_path / "too-small"
     with pytest.raises(ValueError, match="stream_output_byte_limit"):

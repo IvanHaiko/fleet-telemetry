@@ -30,7 +30,7 @@ from runtime.clickhouse.transport import HttpConfig
 from scripts.slice_run import exact6
 from telemetry.archive_documents import canonical, digest
 from telemetry.conversion_contract import SEMANTIC_FIELDS
-from telemetry.serving_projection import _decimal, _semantic_json
+from telemetry.serving_projection import metric_decimal, semantic_json
 from telemetry_convert import convert_job, verify_job
 from telemetry_reference import (
     EndOfInput,
@@ -446,10 +446,10 @@ def run(folder: Path, project: str, private: Path) -> None:
                 "event_id": event["event_id"],
                 "vehicle_id": event["vehicle_id"],
                 "source_timestamp": event["source_timestamp"],
-                **{name: _decimal(payload[name], name) for name in METRICS},
+                **{name: metric_decimal(payload[name], name) for name in METRICS},
                 "disposition": first[cast(str, event["event_id"])],
                 "quality_flags": semantic["quality_flags"],
-                "semantic_json": _semantic_json(semantic),
+                "semantic_json": semantic_json(semantic),
             }
         )
     kafka.readback(topic, records, offsets)

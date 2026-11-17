@@ -14,7 +14,7 @@ and the orchestrated scenario.
 
 - Docker Desktop with at least 12 GiB and 8 CPUs available to the engine. The
   steady-state limits total about 10.5 GiB.
-- Local images: `fleet-telemetry/pyflink-m3:2.2.1-local2`,
+- Local images: the `fleet-telemetry/recording-flink` digest in Compose,
   `fleet-telemetry/seaweed-m4:4.48-local1`, `clickhouse/clickhouse-server:26.8.34.13`,
   `grafana/grafana:13.2.4` and `apache/kafka:4.4.0`. All are `pull_policy: never`.
 - The Grafana ClickHouse plugin 4.23.2 under
@@ -23,6 +23,91 @@ and the orchestrated scenario.
   [stream preparation guide](f09-stream-replay.md#complete-flight-preparation-2026-11-13).
   The run ID comes from the bundle. A new attempt needs a newly prepared bundle
   with a new run ID, because every scope must be fresh.
+
+### Which local images to keep
+
+Use the digest references in [recording.yml](../../compose/recording.yml) for
+inventory. From a prepared run, `docker compose -f compose/recording.yml
+--env-file <private>/compose.env --profile "*" config --images` lists the
+references. Use `docker image inspect <reference>` to check each one locally.
+
+| Image | Role and rebuild inputs |
+| --- | --- |
+| `pyflink-m3:2.2.1-local2` | Retained for M3, link-watch, the generated six-broker and two-host lab profiles, and rollback. Keep the [connector backport builder](../../runtime/pyflink/prepare_connector_backport.py), [final Dockerfile](../../runtime/pyflink/container/Dockerfile.backport) and [repair evidence](../adr/0023-bounded-kafka-enumerator-backport.md). |
+| `pyflink-m3:2.2.1-local1` | Pinned parent of `local2`. Its [Dockerfile](../../runtime/pyflink/container/Dockerfile) needs the exact Linux runtime prefix and payload from [bootstrap](../../runtime/pyflink/bootstrap.py) and [context preparation](../../runtime/pyflink/prepare_runtime_image.py). |
+| `kafka-probe:4.4.0` | Pinned parent of `local1`. Keep the [Kafka context preparer](../../scripts/prepare-kafka-image.py) and [base recipe](../../runtime/kafka/Dockerfile). The recording broker itself runs the official `apache/kafka` image. |
+| `seaweed-m4:4.48-local1` | Runs the archive service. The [context preparer](../../runtime/s3/prepare_image.py) takes `--archive`, `--license` and a fresh `--output` directory. It checks the [artifact pins](../../runtime/s3/artifacts.json) before staging the binary and Dockerfile. |
+
+These four names use the `fleet-telemetry/` repository prefix. Keep the
+images while this profile or its offline rebuild depends on them. A Git tag
+preserves recipes only. Before retiring a local image, check all Compose
+files, Dockerfile parents and the image constants in
+`runtime/continuous/prepare.py` and `split_runtime.py`, which generate the
+six-broker and two-host lab profiles. Then verify that its exact pinned
+reference can be restored on a fresh engine. For a replacement digest,
+validate replay, archive readback and restart in a fresh run before updating
+the pin. Retain the previous image for rollback.
+
+### Building the recording Flink candidate
+
+Use Linux/amd64 and a new BuildKit container with its own content store. The
+two input directories below hold the original allowlisted runtime payload from
+ADR-0022 and the released Java source from ADR-0023. Copy these directories
+to a fresh host to repeat the build. Their contents are external build inputs.
+The recipe checks the payload, configuration, utility and notices against
+`runtime/pyflink/container/recording-inputs.sha256` before extraction.
+The connector builder checks the source, compiler inputs, archive changes
+and stock/patched probe outcomes. The final stage checks native imports,
+the installed JAR and the launcher under UID/GID 10001.
+
+```powershell
+$inputs = ".local-discovery/m3-completion-20261022-001"
+docker buildx create --name telemetry-recording-20261118 --driver docker-container
+docker buildx build --builder telemetry-recording-20261118 --platform linux/amd64 `
+  --build-context "payload=$inputs/build" --build-context "upstream=$inputs/connector-source" `
+  --file runtime/pyflink/container/Dockerfile.recording `
+  --tag fleet-telemetry/recording-flink:2.2.1-candidate --load runtime/pyflink
+docker image inspect fleet-telemetry/recording-flink:2.2.1-candidate --format '{{json .RepoDigests}}'
+```
+
+On 18 November 2026 the local image inventory matched the recording pins.
+Retain `local2` for M3, link-watch, the six-broker and two-host labs and
+previous recording runs, including `f09-s3-full-20261116-02`. Its rollback
+reference is
+`fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956`.
+Retain `local1` for rebuilding that image. Retain `kafka-probe` for the
+Kafka, checkpoint, M3, M4 reader, six-broker and two-host profiles.
+Retain `seaweed-m4` for M4 storage, the two-host archive and recording
+archival. The starter uses `fleet-telemetry/local-flink:2.2.1`.
+The recording worker and PX4 SITL have separate runtime consumers.
+
+To check a candidate while preserving a previous project's storage, set
+the following in a fresh PowerShell session. Choose unused Docker subnets,
+a fresh project name and a new run ID. The profile still needs exclusive use
+of its published loopback ports. The operator commands use the same project
+name for Compose, observer mounts and resource samples. The digest below is
+the tested local manifest. For a new build, use the repository digest returned
+by inspection above. The connector builder checks the JAR for byte equality;
+the build does not assert equality of image metadata across builds.
+
+```powershell
+$env:COMPOSE_PROJECT_NAME = 'fleet-recording-check-20261118'
+$env:RECORDING_SUBNET = '10.253.241.16/28'
+$env:RECORDING_LIVE_SUBNET = '10.253.241.32/28'
+$env:RECORDING_FLINK_IMAGE = 'fleet-telemetry/recording-flink@sha256:48b7eb2aa98e49b2c50099e7e04d74c61f34acb4a174bb4180ad7ec30c17d2a1'
+.venv/Scripts/python.exe -m runtime.recording.fault_run --run-id flink-image-f09-20261118-01 --start-us 86459069 --end-us 266459069 --fault taskmanager-kill@1200
+.venv/Scripts/python.exe -m runtime.recording.live_run --run-id flink-image-live-20261118-01 --silence-at 60 --silence-s 25 --restart-at 115 --restart-down-s 15 --end-at 200
+```
+
+For rollback, stop the candidate run with its own project settings. In the
+session for the previous project, set the old image reference and verify its
+runtime before following the [restore procedure](operations-runbook.md).
+The image preflight can run without mounting any checkpoint or data volume.
+
+```powershell
+$env:RECORDING_FLINK_IMAGE = 'fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956'
+docker run --pull=never --rm --network none --read-only $env:RECORDING_FLINK_IMAGE preflight
+```
 
 ## Procedure
 
