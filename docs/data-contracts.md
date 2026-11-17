@@ -194,6 +194,15 @@ Recorded flights replayed as virtual vehicles
   so are the player's own heartbeat fields (system status always; armed and
   base mode unless the file supplied arming state). Units follow the field
   signatures listed in the ADR; enumerations are not interpreted.
+- New players declare `mapping_version=ulog-replay-plan-v2`. The optional
+  mapping extension is a pair: the version and `velocity_from_boot_ms`, the
+  boot millisecond of the first emitted position with mapped velocity, or
+  null if none has it. Earlier positions have null ground and down speed.
+  A replay heartbeat with `MAV_STATE_UNINIT` carries no recorded arming
+  observation under v2. Its receipt still counts toward connectivity.
+  A subsequent mapped heartbeat can report a genuine disarmed or armed value.
+  Positions keep their existing identity recipe. Readers reconstruct stored
+  declarations without the extension using their original v1 rules.
 
 The [second recording and shared projection](guides/two-recording-view.md#shared-storage-and-interface)
 add `f01-recording-inspection-v1`, source-bound `f01-state-research-v1` identities

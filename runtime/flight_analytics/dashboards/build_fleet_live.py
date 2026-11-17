@@ -84,11 +84,16 @@ LAST = (
 
 
 def series(column: str, scale: str = "") -> str:
+    # Eight vehicles times 512 receipt-time buckets fits the reader's row cap.
+    # Include the right endpoint and keep the last sample, even if it is null.
     return (
-        "SELECT toDateTime64(received_unix_ms / 1000, 3) AS time, "
-        f"vehicle_label AS vehicle, {column}{scale} AS value "
-        f"FROM ${{database}}.points WHERE {column} IS NOT NULL "
-        "ORDER BY time LIMIT 4096"
+        "SELECT fromUnixTimestamp64Milli(toInt64(max(received_unix_ms))) AS time, "
+        "vehicle_label AS vehicle, "
+        f"tupleElement(argMax(tuple({column}{scale}), "
+        "tuple(received_unix_ms, input_offset)), 1) AS value "
+        "FROM ${database}.points WHERE received_unix_ms BETWEEN ${__from} AND ${__to} "
+        "GROUP BY system_id, vehicle_label, intDiv(received_unix_ms - ${__from}, "
+        "intDiv(${__to} - ${__from}, 512) + 1) ORDER BY time, vehicle"
     )
 
 
@@ -136,7 +141,15 @@ def build() -> dict[str, object]:
             "One point per native second per vehicle; the larger marker is the "
             "last position while observed. No external tiles.",
             options={
-                "view": {"id": "fit", "allLayers": True, "padding": 10, "maxZoom": 18},
+                "view": {
+                    "id": "fit",
+                    "allLayers": False,
+                    "layer": "Tracks",
+                    "lastOnly": False,
+                    "padding": 10,
+                    "maxZoom": 17,
+                    "zoom": 15,
+                },
                 "basemap": {
                     "type": "xyz",
                     "name": "No external tiles",
@@ -208,7 +221,8 @@ def build() -> dict[str, object]:
             "timeseries",
             (14, 10, 10, 7),
             [target("A", series("altitude_msl_m"), time_series=True)],
-            "Receipt time on the horizontal axis; each file keeps its own clock.",
+            "Latest altitude per vehicle in each receipt-time bucket "
+            "of the selected range.",
             fieldConfig={
                 "defaults": {
                     "noValue": "Unknown",
@@ -224,8 +238,8 @@ def build() -> dict[str, object]:
             "timeseries",
             (14, 17, 10, 7),
             [target("A", series("remaining_fraction", " * 100"), time_series=True)],
-            "Only receipt-ordered battery summaries; a file without a battery "
-            "has no line.",
+            "Latest sample per vehicle in each receipt-time bucket of the selected "
+            "range. An unknown battery reading leaves a gap.",
             fieldConfig={
                 "defaults": {
                     "noValue": "Unknown",

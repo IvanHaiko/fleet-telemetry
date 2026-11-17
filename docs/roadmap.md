@@ -18,6 +18,7 @@ Version 1 runs on one computer; an AWS deployment is an optional later stage.
 | --- | --- | --- |
 | Replay of a recorded flight file | Complete 39-minute F09 flight, F07, F03 and one further PX4 log on reviewed firmware; SQL equals a prepared reference by content | [0052](adr/0052-single-machine-recording-profile.md), [0057](adr/0057-registered-recordings-in-the-integrated-path.md), [0058](adr/0058-admission-by-mapping-profile.md) |
 | Live PX4 over MAVLink | One simulated vehicle (SITL); SQL equals a rebuild from the archive | [0054](adr/0054-live-sitl-recording-profile.md) |
+| Recorded flights as a fleet | F09 paused while F03 advanced. A second session replayed four files drawn from 300 with a position, with all 335 sent positions reconciled | [0060](adr/0060-recorded-flights-as-virtual-vehicles.md#four-file-demonstration-2026-11-17) |
 | Failure and restart | Four injected faults and a whole-profile stop and restore without loss or logical repeats; broker, JobManager and host failures not verified | [0053](adr/0053-recording-recovery-boundaries.md), [0055](adr/0055-recording-operations-and-restoration.md) |
 | Run health | Every signal with a threshold and `ok`/`warn`/`fail`/`unknown`; SQL quality checks; which stage stopped and why; no unattended alerting | [0056](adr/0056-run-health-without-a-monitoring-stack.md), [0059](adr/0059-explaining-stalled-values.md) |
 | Inspecting any ULog | Offline report of topics, fields, samples and supported views for any structurally valid file | [0058](adr/0058-admission-by-mapping-profile.md) |
@@ -32,18 +33,9 @@ repeat ([details](roadmap-history.md#integrated-mvp-priority-2026-11-10)).
 
 ## Next
 
-1. **Recorded flights as virtual vehicles.** A player turns each ULog file
-   into a virtual PX4 that sends MAVLink to the live gateway; several vehicles
-   share one session and join without a restart
-   ([ADR-0060](adr/0060-recorded-flights-as-virtual-vehicles.md), proposed).
-   *First step done 2026-11-17:* F09 and F03 in one session, F09 paused while
-   F03 kept advancing, F03 `ended`, `verify` passed per vehicle.
-2. **Demonstration with 3–4 random logs.** Extend the field signatures to the
-   most frequent unsupported variants, then replay files chosen at random in
-   advance from the local logs with a position.
-3. **Logs without GPS.** Show local position (`LOCAL_POSITION_NED`) on a
+1. **Logs without GPS.** Show local position (`LOCAL_POSITION_NED`) on a
    local-frame view for the indoor logs that have no geographic position.
-4. **A physical PX4 over a radio link.** Needs a vehicle and a telemetry
+2. **A physical PX4 over a radio link.** Needs a vehicle and a telemetry
    radio; checks link loss and the real screen latency.
 
 Only when a need appears: other autopilots such as ArduPilot (their heartbeat

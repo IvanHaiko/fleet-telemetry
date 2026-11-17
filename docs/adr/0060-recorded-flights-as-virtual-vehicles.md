@@ -1,7 +1,8 @@
 # ADR-0060: Recorded flights as virtual vehicles over MAVLink
 
-**Status:** Proposed, 2026-11-17; first step implemented and run the same day
-([evidence](#first-step-run-2026-11-17)). Extends the live source of
+**Status:** Proposed, 2026-11-17. The [two-vehicle run](#first-step-run-2026-11-17)
+and [four-file demonstration](#four-file-demonstration-2026-11-17) ran the same day.
+Extends the live source of
 [ADR-0054](0054-live-sitl-recording-profile.md) from one PX4 SITL to several
 MAVLink vehicles. The ULog replay of
 [ADR-0057](0057-registered-recordings-in-the-integrated-path.md) and
@@ -133,13 +134,14 @@ Before its first packet the player claims a free MAVLink system ID (2 to
 exclusively in the session's `players/` directory, then writes its
 declaration there. The gateway rereads the directory on every status tick and
 when a packet arrives from an unknown system, and admits a system only when a
-valid declaration exists for it:
+valid declaration exists for it. Example v2 declaration:
 
 ```json
 {"kind": "ulog-replay", "system": 3, "component": 1,
  "source_id": "sha256:…", "label": "ULog d8a1f180",
  "vehicle": "ulog-d8a1f18026a781ee", "firmware": "46a12a09…",
  "position_topic": "vehicle_global_position",
+ "mapping_version": "ulog-replay-plan-v2", "velocity_from_boot_ms": 86459,
  "available": {"relative_alt": true, "velocity": true, "battery": true,
                "armed": true, "mode": false}}
 ```
@@ -242,7 +244,7 @@ On one live session of the recording profile:
    F09 shows *stale* with its last receipt age; F03 stays *observed* and its
    track keeps advancing. Resume F09; it returns to *observed*.
 4. F03 reaches the end of its file and shows `ended`, not `source_silent`.
-5. `ops verify` passes: per vehicle, SQL facts equal the archive
+5. `fleet verify` passes: per vehicle, SQL facts equal the archive
    recomputation, and the replay positions in SQL equal the positions in the
    player's ledger by identity and content, with no capture gap.
 6. Offline: a synthetic file built with `tests/ulog_binary.py` with only an
@@ -286,3 +288,55 @@ Not checked in this step: mode for any file, three or more vehicles, a file
 refused by the planner through `add`, a player or gateway restart in a fleet
 session, the session bounds, and the files of the 3,689 local logs without a
 geographic position.
+
+## Four-file demonstration, 2026-11-17
+
+Run `fleet-demo-20261117-01` selected four of the 300 distinct local ULogs
+with a non-empty instance-0 position topic. The selection record gives seed
+`20261117` and method `random.Random(seed).sample(sorted(pool), 4)`. Grafana
+showed four observed players together. The capture and archive contained 491
+deliveries, including 335 positions, 78 heartbeats and 78 battery summaries.
+The four position ledgers matched 25, 54, 125 and 131 archived positions.
+All 335 SQL facts matched the archive rebuild, with zero logical repeats and
+zero detected MAVLink sequence gaps. The eight original verification checks
+passed. This run used the original mapping and one gateway epoch. Pause and
+resume were exercised in the earlier two-vehicle run.
+
+## Corrections after the demonstration
+
+- The `ulog-replay-plan-v2` declaration carries the boot millisecond of the
+  first transmitted position with a preceding velocity sample. Earlier GPS
+  positions retain their coordinates and show unknown speed. Until a
+  mapped arming sample reaches a scheduled heartbeat, the player reports
+  its own initialization state (`MAV_STATE_UNINIT`). That heartbeat counts
+  for link health and produces null armed and base-mode values. A recorded
+  zero velocity and a recorded disarmed state remain visible.
+- Verification compares the union of vehicles in declarations, archived
+  events and player ledgers. Every vehicle needs all three. Archived untimed
+  events and an empty position ledger cover a player without GPS.
+- Altitude and battery use the selected inclusive receipt-time range and
+  return the latest sample in each of at most 512 buckets per vehicle.
+  Equal receipt times are ordered by input offset. A null last value remains
+  null. At eight vehicles the queries stay within the 4,096-row reader budget.
+
+Use a fresh fleet run with matching player, gateway, processing and serving
+code for v2. Retained v1 runs reconstruct with their original mapping and
+hashes. To obtain corrected historical values, replay the source file in a
+fresh run. To roll back, start a new run with the previous revision. The
+four-file counts above are historical evidence from before these corrections.
+
+The v2 planner and receipt-ordered runtime also replayed the same four source
+files offline: 491 events and 335 position facts, with the same per-vehicle
+counts as the original run. This check covered decoding and processing only.
+To reproduce the targeted regressions from the repository root:
+
+```sh
+python -m pytest -q tests/test_ulog_replay.py
+python -m pytest -q tests/test_recording_health.py::test_fleet_chart_range_keeps_last_sample_for_all_eight_vehicles
+```
+
+The first command checks the unknown-to-recorded transitions, retained v1
+behavior and missing ledger detection. The second ran both dashboard SQL
+queries in the pinned local ClickHouse image on 32,808 synthetic receipts.
+Each query returned 4,000 rows for the selected range, including every
+vehicle's last sample. This SQL check requires access to the cached image.

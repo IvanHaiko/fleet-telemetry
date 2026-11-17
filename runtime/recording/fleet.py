@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "failed", "category": str(error)[:80]}))
         return 2
     print(json.dumps(result, indent=1, default=str))
-    return 0
+    return 2 if result.get("status") == "failed" else 0
 
 
 if __name__ == "__main__":

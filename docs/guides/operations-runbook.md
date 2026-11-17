@@ -93,6 +93,18 @@ player starts. The dashboard is *Fleet: recorded flights as virtual vehicles*.
 A session holds at most eight vehicles, 50,000 deliveries and 30 minutes of
 gateway lifetime, so long flights play a declared interval.
 
+The altitude and battery charts use the selected Grafana receipt-time range.
+Each vehicle contributes its last sample in each of at most 512 time buckets.
+An unknown battery value leaves a gap. For a completed session, select an
+absolute range covering its receipts to see the historical series.
+
+`fleet verify` lists declaration, archive and ledger presence for every
+vehicle found in any of those sources. A vehicle without GPS can pass with
+archived heartbeat or battery events and an empty ledger file. A missing
+ledger fails verification even for that vehicle. A failed check returns exit
+code 2. Each verification builds from a fresh archive cursor, so it can be
+repeated against the retained inputs.
+
 `start` prepares the scope, starts Kafka, Flink, SeaweedFS, ClickHouse and
 Grafana, initializes fresh topics, database and bucket, submits the job,
 starts an observer, the archive and serving workers and the source, and then

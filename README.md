@@ -69,11 +69,12 @@ Component boundaries and delivery semantics are in
 - **Scales on synthetic load.** 100 vehicles at 5 Hz on two computers:
   360,100 events reconciled across Kafka, archive and SQL
   ([report](docs/case-studies/m6-load-500-8g.md)).
-
 - **Plays recorded flights as a fleet.** Each ULog file becomes a virtual PX4
   that sends MAVLink to the same gateway a physical vehicle would use; vehicles
   join, pause and end independently while the session runs, and each shows
-  only what its file contains.
+  only what its file contains. In a four-file run, all 335 sent positions
+  matched the archive by identity and content, and SQL matched the archive
+  rebuild. [Fleet demonstration](docs/adr/0060-recorded-flights-as-virtual-vehicles.md#four-file-demonstration-2026-11-17)
 
 The [roadmap](docs/roadmap.md) has the current state and the order of work.
 

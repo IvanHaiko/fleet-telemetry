@@ -1,16 +1,18 @@
 """Recorded flights as virtual vehicles (ADR-0060) on authored ULog bytes."""
 
 import struct
+from hashlib import sha256
 from pathlib import Path
 
 from ulog_binary import FIRMWARE_COMMIT, header, info, packet
 
-from telemetry.conversion_contract import object_value
+from runtime.continuous.live_reconcile import ledger_check
+from telemetry.conversion_contract import json_line, object_value
 from telemetry.fleet_runtime import (
     FLEET_PROFILE,
     FleetRuntime,
 )
-from telemetry.live_event import make_event
+from telemetry.live_event import event_bytes, make_event, read_event
 from telemetry.ulog_replay import plan
 
 GPS = "vehicle_gps_position:uint64_t timestamp;int32_t lat;int32_t lon;int32_t alt;"
@@ -139,6 +141,84 @@ def test_unknown_arming_code_makes_armed_unavailable(tmp_path: Path) -> None:
         "custom_mode_code": None,
         "system_status_code": None,
     }
+
+
+def test_late_velocity_and_state_keep_unknown_until_observed(tmp_path: Path) -> None:
+    velocity = (
+        "vehicle_local_position:uint64_t timestamp;float vx;float vy;float vz;"
+        "uint8_t[4] _padding0;"
+    )
+    flight = _log(
+        _topic(GPS, 1),
+        _topic(STATUS, 2),
+        _topic(velocity, 3),
+        _gps(1_000_000, 10),
+        packet("D", struct.pack("<HQfff4x", 3, 1_000_001, 0.0, 0.0, 0.0)),
+        _gps(1_200_000, 11),
+        _status(1_500_000, 1),
+        _gps(2_000_000, 12),
+        _status(3_000_000, 2),
+        _gps(3_000_000, 13),
+    )
+    replay = plan(_write(tmp_path, flight))
+    scope = replay.declaration(2)
+    fleet = _fleet()
+    values = []
+    for seq, p in enumerate(replay.packets):
+        row = make_event("fleet-test", scope, p.message, p.fields, EPOCH, seq, seq)
+        fact = fleet.accept(read_event(event_bytes(row)))
+        if fact is not None:
+            position = object_value(fact["position"])
+            state = object_value(object_value(fact["state"])["values"])
+            values.append((position["ground_speed_m_s"], state["armed"]))
+    assert values == [(None, None), (0.0, None), (0.0, False), (0.0, True)]
+
+    # A retained v1 capture has no mapping extension and sent ACTIVE heartbeats.
+    legacy = dict(scope)
+    del legacy["mapping_version"], legacy["velocity_from_boot_ms"]
+    previous = _fleet()
+    for seq, p in enumerate(replay.packets):
+        fields = dict(p.fields)
+        if p.message == "HEARTBEAT":
+            fields["system_status"] = 4
+        row = make_event("fleet-test", legacy, p.message, fields, EPOCH, seq, seq)
+        assert read_event(event_bytes(row))["source"] == legacy
+        fact = previous.accept(row)
+        if fact is not None:
+            assert object_value(fact["position"])["ground_speed_m_s"] == 0.0
+            assert object_value(object_value(fact["state"])["values"])["armed"] is False
+            break
+    else:
+        raise AssertionError("Expected a legacy position")
+
+
+def test_each_player_needs_its_own_ledger_including_without_gps(tmp_path: Path) -> None:
+    native = {"time_boot_ms": 1000}
+    ledger = json_line(
+        {"measurement_id": "id", "native_sha256": sha256(json_line(native)).hexdigest()}
+    )
+    events: list[dict[str, object]] = [
+        {"source": {"vehicle": name}, "measurement_id": identity, "native": native}
+        for name, identity in (("a", "id"), ("b", "id"), ("no-gps", None))
+    ]
+    declared = {"a", "b", "no-gps"}
+    (tmp_path / "a.ledger.jsonl").write_bytes(ledger)
+    (tmp_path / "no-gps.ledger.jsonl").touch()
+    rows = ledger_check(tmp_path, events, declared)
+    assert object_value(rows["a"])["equal"] is True
+    assert object_value(rows["no-gps"])["equal"] is True
+    assert object_value(rows["b"])["equal"] is False
+    assert object_value(rows["b"])["ledger_present"] is False
+    (tmp_path / "b.ledger.jsonl").write_bytes(ledger)
+    assert all(
+        object_value(r)["equal"]
+        for r in ledger_check(tmp_path, events, declared).values()
+    )
+    (tmp_path / "no-gps.ledger.jsonl").unlink()
+    rows = ledger_check(tmp_path, events, {"a", "no-gps", "absent"})
+    assert all(
+        not object_value(rows[name])["equal"] for name in ("b", "no-gps", "absent")
+    )
 
 
 def test_identity_ignores_system_and_vehicles_stay_apart(tmp_path: Path) -> None:

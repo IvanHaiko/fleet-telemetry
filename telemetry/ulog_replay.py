@@ -25,12 +25,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from telemetry.live_event import MAV_STATE_UNINIT, REPLAY_MAPPING_V2
 from telemetry.recordings import ADMITTED_MAX_INPUT_BYTES, ADMITTED_MAX_RECORDS
 from telemetry.ulog_inventory import inventory
 from telemetry.ulog_samples import Samples, Topic, Value, decode
 from ulog_integrity import _MAGIC, InputIntegrityError
 
-PLAN_VERSION = "ulog-replay-plan-v1"
 POSITION_PERIOD_US = 200_000
 SLOW_PERIOD_US = 1_000_000
 PX4_AUTOPILOT = 12
@@ -97,6 +97,7 @@ class ReplayPlan:
     firmware: str | None
     position_topic: str | None
     available: dict[str, bool]
+    velocity_from_boot_ms: int | None
     packets: tuple[Packet, ...]
     first_us: int
     last_us: int
@@ -121,6 +122,8 @@ class ReplayPlan:
             "system": system,
             "component": component,
             "available": dict(self.available),
+            "mapping_version": REPLAY_MAPPING_V2,
+            "velocity_from_boot_ms": self.velocity_from_boot_ms,
         }
 
     def summary(self) -> dict[str, object]:
@@ -129,7 +132,7 @@ class ReplayPlan:
         for packet in self.packets:
             counts[packet.message] = counts.get(packet.message, 0) + 1
         return {
-            "format_version": PLAN_VERSION,
+            "format_version": REPLAY_MAPPING_V2,
             "source_id": self.source_id,
             "vehicle": self.vehicle,
             "firmware": self.firmware,
@@ -341,6 +344,20 @@ def plan(
         else []
     )
     stamps = [p.native_us for p in packets]
+    # Bind the threshold to a transmitted position. A velocity sample and an
+    # earlier position can fall in the same truncated MAVLink millisecond.
+    velocity_from = (
+        next(
+            (
+                p.fields["time_boot_ms"]
+                for p in packets
+                if p.native_us >= velocity.samples[0][0]
+            ),
+            None,
+        )
+        if velocity_ok
+        else None
+    )
     stamps += [stamp for stamp, _ in battery_samples]
     stamps += [stamp for stamp, _ in states]
     if not stamps:
@@ -353,6 +370,7 @@ def plan(
         battery_index, cell = _latest(battery_samples, stamp, battery_index)
         packets.append(Packet(stamp, "SYS_STATUS", _battery(cell)))
         base = 0
+        state = None
         if armed_ok:
             state_index, state = _latest(states, stamp, state_index)
             if state is not None and int(state["arming_state"]) == ARMING_ARMED:
@@ -366,7 +384,9 @@ def plan(
                     "autopilot": PX4_AUTOPILOT,
                     "base_mode": base,
                     "custom_mode": 0,
-                    "system_status": MAV_STATE_ACTIVE,
+                    "system_status": MAV_STATE_ACTIVE
+                    if state is not None
+                    else MAV_STATE_UNINIT,
                 },
             )
         )
@@ -378,11 +398,12 @@ def plan(
         position_topic=signature.topic if signature and positions else None,
         available={
             "relative_alt": home_ok,
-            "velocity": velocity_ok,
+            "velocity": velocity_from is not None,
             "battery": bool(battery_samples),
             "armed": armed_ok,
             "mode": False,
         },
+        velocity_from_boot_ms=velocity_from,
         packets=tuple(packets),
         first_us=first,
         last_us=last,

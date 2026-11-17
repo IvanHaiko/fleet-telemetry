@@ -35,6 +35,8 @@ type Document = dict[str, object]
 EVENT_PROFILE = "px4-live-event-v1"
 REPLAY_PROFILE = "mavlink-vehicle-event-v1"
 REPLAY_KIND = "ulog-replay"
+REPLAY_MAPPING_V2 = "ulog-replay-plan-v2"
+MAV_STATE_UNINIT = 0
 # What a replay player could derive from its file (ADR-0060); a field marked
 # false arrives as zero or a MAVLink sentinel and is never shown as a value.
 AVAILABLE = ("relative_alt", "velocity", "battery", "armed", "mode")
@@ -101,6 +103,17 @@ def source_scope(value: Mapping[str, object]) -> Document:
 
 def replay_scope(value: Mapping[str, object]) -> Document:
     """A recorded file as a virtual vehicle, with what the player could map."""
+    mapping: Document = {}
+    if "mapping_version" in value:
+        if value["mapping_version"] != REPLAY_MAPPING_V2:
+            raise ValueError("live_event_replay_mapping")
+        first = value.get("velocity_from_boot_ms")
+        mapping = {
+            "mapping_version": REPLAY_MAPPING_V2,
+            "velocity_from_boot_ms": None
+            if first is None
+            else _bounded(first, 0, 2**32 - 1),
+        }
     require_keys(
         value,
         {
@@ -113,6 +126,7 @@ def replay_scope(value: Mapping[str, object]) -> Document:
             "system",
             "component",
             "available",
+            *mapping,
         },
     )
     source_id = value["source_id"]
@@ -135,6 +149,10 @@ def replay_scope(value: Mapping[str, object]) -> Document:
     require_keys(available, set(AVAILABLE))
     if not all(type(available[name]) is bool for name in AVAILABLE):
         raise ValueError("live_event_available")
+    if mapping and available["velocity"] != (
+        mapping["velocity_from_boot_ms"] is not None
+    ):
+        raise ValueError("live_event_velocity_availability")
     return {
         "kind": REPLAY_KIND,
         "vehicle": value["vehicle"],
@@ -146,6 +164,7 @@ def replay_scope(value: Mapping[str, object]) -> Document:
         "system": _bounded(value["system"], 2, 250),
         "component": _bounded(value["component"], 1, 255),
         "available": {name: available[name] for name in AVAILABLE},
+        **mapping,
     }
 
 

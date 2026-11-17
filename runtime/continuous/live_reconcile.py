@@ -28,6 +28,7 @@ import hashlib
 import json
 from collections import Counter
 from pathlib import Path
+from tempfile import mkdtemp
 
 from runtime.clickhouse.transport import HttpConfig, _request
 from runtime.continuous.live_worker import ArchivedFacts
@@ -122,8 +123,7 @@ def reconcile(private: Path, evidence: Path) -> Document:
         return rows(query)[0][0]
 
     # Rebuild from archive objects alone, with its own origin file.
-    rebuild = state.parent / "rebuild-001"
-    rebuild.mkdir()
+    rebuild = Path(mkdtemp(prefix="rebuild-", dir=state.parent))
     reader = storage(config, "reader")
     try:
         archived = ArchivedFacts(config, reader, rebuild)
@@ -176,7 +176,11 @@ def reconcile(private: Path, evidence: Path) -> Document:
         "capture": capture_coverage(state, senders(plan, declared)),
     }
     if "fleet" in plan:
-        result["players"] = ledger_check(state / "players", archived_events)
+        result["players"] = ledger_check(
+            state / "players",
+            archived_events,
+            {string_value(s["vehicle"]) for s in declared},
+        )
     result["zero_logical_repeats"] = (
         result["distinct_event_ids"]
         == result["distinct_full_rows_view"]
@@ -193,36 +197,47 @@ def senders(plan: Document, declared: list[Document]) -> set[tuple[int, int]]:
     }
 
 
-def ledger_check(players: Path, events: list[Document]) -> Document:
+def ledger_check(players: Path, events: list[Document], declared: set[str]) -> Document:
     """Per vehicle: positions the player sent equal the archived positions."""
     archived: dict[str, set[tuple[str, str]]] = {}
     for event in events:
+        vehicle = string_value(object_value(event["source"])["vehicle"])
+        positions = archived.setdefault(vehicle, set())
         if event["measurement_id"] is None:
             continue
-        vehicle = string_value(object_value(event["source"])["vehicle"])
-        archived.setdefault(vehicle, set()).add(
+        positions.add(
             (
                 string_value(event["measurement_id"]),
                 hashlib.sha256(json_line(event["native"])).hexdigest(),
             )
         )
     result: Document = {}
-    for path in sorted(players.glob("*.ledger.jsonl")):
-        vehicle = path.name.removesuffix(".ledger.jsonl")
+    ledgers = {
+        path.name.removesuffix(".ledger.jsonl"): path
+        for path in players.glob("*.ledger.jsonl")
+    }
+    for vehicle in sorted(declared | archived.keys() | ledgers.keys()):
+        path = ledgers.get(vehicle)
+        lines = (
+            read_bounded(path, _MAX_CAPTURE).splitlines() if path is not None else []
+        )
         sent = {
             (string_value(row["measurement_id"]), string_value(row["native_sha256"]))
-            for row in (
-                json_object(line)
-                for line in read_bounded(path, _MAX_CAPTURE).splitlines()
-            )
+            for row in map(json_object, lines)
         }
         got = archived.get(vehicle, set())
         result[vehicle] = {
-            "sent_positions": len(sent),
+            "declared": vehicle in declared,
+            "archive_present": vehicle in archived,
+            "ledger_present": path is not None,
+            "sent_positions": len(sent) if path is not None else None,
             "archived_positions": len(got),
-            "missing_in_archive": len(sent - got),
-            "not_sent_by_player": len(got - sent),
-            "equal": sent == got,
+            "missing_in_archive": len(sent - got) if path is not None else None,
+            "not_sent_by_player": len(got - sent) if path is not None else None,
+            "equal": vehicle in declared
+            and vehicle in archived
+            and path is not None
+            and sent == got,
         }
     return result
 

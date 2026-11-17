@@ -145,13 +145,6 @@ def _rows(
 def _run(
     columns: str, rows: list[dict[str, object]], source: str
 ) -> list[dict[str, object]]:
-    if IMAGE is None or shutil.which("docker") is None:
-        pytest.skip("docker and the pinned ClickHouse image are required")
-    image = IMAGE[1]
-    if subprocess.run(
-        ["docker", "image", "inspect", image], capture_output=True
-    ).returncode:
-        pytest.skip("pinned ClickHouse image not present locally")
     body = "\n".join(json.dumps(row) for row in rows)
     assert "'" not in body
     insert = f"INSERT INTO fixture.points SELECT * FROM format(JSONEachRow, '{body}'); "
@@ -162,9 +155,20 @@ def _run(
         + health_sql(source, "fixture")
         + " FORMAT JSONEachRow"
     )
+    return _clickhouse_local(sql)
+
+
+def _clickhouse_local(sql: str) -> list[dict[str, object]]:
+    if IMAGE is None or shutil.which("docker") is None:
+        pytest.skip("docker and the pinned ClickHouse image are required")
+    image = IMAGE[1]
+    if subprocess.run(
+        ["docker", "image", "inspect", image], capture_output=True
+    ).returncode:
+        pytest.skip("pinned ClickHouse image not present locally")
     result = subprocess.run(
         [
-            *("docker", "run", "--rm", "--network", "none"),
+            *("docker", "run", "--rm", "--pull=never", "--network", "none"),
             *("--entrypoint", "clickhouse", image, "local", "--multiquery"),
             *("--query", sql),
         ],
@@ -174,6 +178,34 @@ def _run(
     )
     assert result.returncode == 0, result.stderr[-2000:]
     return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def test_fleet_chart_range_keeps_last_sample_for_all_eight_vehicles() -> None:
+    dashboard = json.loads((DASHBOARDS / "fleet-live.json").read_bytes())
+    panels = [p for p in dashboard["panels"] if p["type"] == "timeseries"]
+    assert len(panels) == 2
+    # Each vehicle has 4101 receipts. Select 100..4099, including both ends.
+    fixture = (
+        "CREATE DATABASE fixture; CREATE VIEW fixture.points AS "
+        "SELECT number AS input_offset, number % 8 AS system_id, "
+        "toString(system_id) AS vehicle_label, intDiv(number, 8) AS received_unix_ms, "
+        "toFloat64(received_unix_ms) AS altitude_msl_m, "
+        "if(system_id = 0 AND received_unix_ms = 4099, NULL, 0.75) "
+        "AS remaining_fraction FROM numbers(32808); "
+    )
+    for panel in panels:
+        sql = panel["targets"][0]["rawSql"].replace("${database}", "fixture")
+        sql = sql.replace("${__from}", "100").replace("${__to}", "4099")
+        rows = _clickhouse_local(fixture + sql + " FORMAT JSONEachRow")
+        assert len(rows) == 500 * 8  # 4000 milliseconds in eight-ms buckets
+        assert rows[0]["time"] == "1970-01-01 00:00:00.107"
+        latest = rows[-8:]
+        assert {r["time"] for r in latest} == {"1970-01-01 00:00:04.099"}
+        assert [r["vehicle"] for r in latest] == list(map(str, range(8)))
+        expected: list[float | None] = (
+            [4099.0] * 8 if "altitude_msl_m" in sql else [None, *([75.0] * 7)]
+        )
+        assert [r["value"] for r in latest] == expected
 
 
 @pytest.mark.parametrize(

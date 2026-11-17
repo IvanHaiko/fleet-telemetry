@@ -22,7 +22,9 @@ from telemetry.conversion_contract import (
     string_value,
 )
 from telemetry.live_event import (
+    MAV_STATE_UNINIT,
     REPLAY_KIND,
+    REPLAY_MAPPING_V2,
     content_signature,
     epoch_value,
     event_bytes,
@@ -100,7 +102,10 @@ def shown_position(source: Mapping[str, object], native: dict[str, int]) -> Docu
     if available is not None:
         if not available["relative_alt"]:
             values["relative_altitude_m"] = None
-        if not available["velocity"]:
+        first = source.get("velocity_from_boot_ms")
+        if not available["velocity"] or (
+            first is not None and native["time_boot_ms"] < integer_value(first)
+        ):
             values["ground_speed_m_s"] = values["down_speed_m_s"] = None
     return values
 
@@ -121,7 +126,10 @@ def shown_values(
     if stream == "battery":
         return values if available["battery"] else dict.fromkeys(values)
     values["system_status_code"] = None
-    if not available["armed"]:
+    if not available["armed"] or (
+        source.get("mapping_version") == REPLAY_MAPPING_V2
+        and native["system_status"] == MAV_STATE_UNINIT
+    ):
         values["armed"] = values["base_mode_code"] = None
     if not available["mode"]:
         values["custom_mode_code"] = None
