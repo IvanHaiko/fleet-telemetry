@@ -24,7 +24,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from runtime.flight_analytics.recording import connect
 from telemetry.admission import AdmissionRefused, admit_original
 from telemetry.recordings import RECORDINGS, Recording
 
@@ -118,6 +117,9 @@ def prepare_admitted(
     admitted, report = admit_original(source)
     if admitted.source_id in RECORDINGS:
         raise ValueError("registered_recording_use_its_key")
+    # Only preparation of an admitted ULog needs the optional flight reader.
+    from runtime.flight_analytics.recording import connect
+
     retrieved_at = _utc(source.stat().st_mtime)
     output.mkdir()
     replay = report["replay"]
