@@ -34,7 +34,9 @@ def dashboard_uid(source: str) -> str:
     return DASHBOARDS["live" if source == "live" else "f09"]
 
 
-def render_dashboards(run_id: str, source: str, label: str | None = None) -> Path:
+def render_dashboards(
+    run_id: str, source: str, label: str | None = None, *, fleet: bool = False
+) -> Path:
     """Render the current dashboard template for a stored run's database.
 
     The run's own rendered copy in its private directory stays untouched; the
@@ -46,6 +48,11 @@ def render_dashboards(run_id: str, source: str, label: str | None = None) -> Pat
     marker = (
         live_prepare.TEMPLATE_DATABASE if live else recording_prepare.TEMPLATE_DATABASE
     )
+    if fleet:
+        template, marker = (
+            live_prepare.FLEET_DASHBOARD,
+            live_prepare.FLEET_TEMPLATE_DATABASE,
+        )
     text = template.read_text(encoding="utf-8")
     require(text.count(marker) == 5, "view_dashboard_template")
     target = ROOT / ".local-discovery" / f"recording-view-{run_id}" / "dashboards"
@@ -83,6 +90,7 @@ def view(run: Profile, plan: Document) -> Document:
             run.run_id,
             str(plan["source"]),
             cast(str, plan["label"]) if plan.get("label") else None,
+            fleet=plan.get("fleet") is True,
         ).as_posix()
     }
     run.docker(*run.compose, "up", "-d", "grafana", env=dashboards)
@@ -106,7 +114,8 @@ def view(run: Profile, plan: Document) -> Document:
     return {
         "run_id": run.run_id,
         "status": "ready",
-        "dashboard": f"http://127.0.0.1:13003/d/{dashboard_uid(str(plan['source']))}",
+        "dashboard": "http://127.0.0.1:13003/d/"
+        + ("fleet-live" if plan.get("fleet") else dashboard_uid(str(plan["source"]))),
         "rekeyed": result["rekeyed"],
         "points": result["points"],
     }

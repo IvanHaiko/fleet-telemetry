@@ -170,13 +170,10 @@
    },
    "options": {
     "view": {
-     "id": "fit",
-     "allLayers": false,
-     "layer": "Tracks",
-     "lastOnly": false,
-     "padding": 10,
-     "maxZoom": 17,
-     "zoom": 15
+     "id": "coords",
+     "lat": 0,
+     "lon": 0,
+     "zoom": 2
     },
     "basemap": {
      "type": "xyz",
@@ -187,7 +184,8 @@
     },
     "controls": {
      "showZoom": true,
-     "mouseWheelZoom": true
+     "mouseWheelZoom": true,
+     "showScale": true
     },
     "layers": [
      {

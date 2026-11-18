@@ -141,21 +141,18 @@ def build() -> dict[str, object]:
             "One point per native second per vehicle; the larger marker is the "
             "last position while observed. No external tiles.",
             options={
-                "view": {
-                    "id": "fit",
-                    "allLayers": False,
-                    "layer": "Tracks",
-                    "lastOnly": False,
-                    "padding": 10,
-                    "maxZoom": 17,
-                    "zoom": 15,
-                },
+                # A fixed initial view preserves operator zoom and pan on refresh.
+                "view": {"id": "coords", "lat": 0, "lon": 0, "zoom": 2},
                 "basemap": {
                     "type": "xyz",
                     "name": "No external tiles",
                     "config": {"url": "http://127.0.0.1:1/{z}/{x}/{y}.png"},
                 },
-                "controls": {"showZoom": True, "mouseWheelZoom": True},
+                "controls": {
+                    "showZoom": True,
+                    "mouseWheelZoom": True,
+                    "showScale": True,
+                },
                 "layers": [
                     {
                         "name": "Offline country boundaries",

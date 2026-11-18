@@ -255,6 +255,29 @@ def verify(args: argparse.Namespace) -> Document:
     return {k: result[k] for k in ("run_id", "status", "checks", "players")}
 
 
+def stop(args: argparse.Namespace) -> Document:
+    run, settings = load(args.run_id)
+    require(settings.get("fleet") is True, "not_a_fleet")
+    run.require_active_scope()
+    # Replay players are Compose one-offs and can outlive a service stop.
+    ids = run.docker(
+        "ps",
+        "-q",
+        "--filter",
+        f"label=com.docker.compose.project={PROJECT}",
+        "--filter",
+        "label=com.docker.compose.service=replay-player",
+        "--filter",
+        f"name=^/{PROJECT}-replay-{run.run_id}-[0-9a-f]{{12}}$",
+    ).split()
+    if ids:
+        run.docker("stop", *ids)
+    if not (run.out / "ops-started.json").exists():
+        run.stop()
+        return {"run_id": run.run_id, "status": "stopped"}
+    return stop_run(run, settings)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -295,8 +318,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify":
             result = verify(args)
         else:
-            run, plan_document = load(args.run_id)
-            result = stop_run(run, plan_document)
+            result = stop(args)
     except (RunFailure, OSError, ValueError) as error:
         print(json.dumps({"status": "failed", "category": str(error)[:80]}))
         return 2

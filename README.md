@@ -12,10 +12,11 @@ history. That makes it possible to explain any value, to tell a missing
 reading from a zero, and to prove that a retry or a restart did not change the
 answer. The platform only observes telemetry; it never controls a vehicle.
 
-![Grafana: route of a recorded PX4 fixed-wing flight with altitude, ground speed and battery voltage, current and charge over 40 minutes](docs/assets/flight-overview.png)
+![Fleet operator panel showing a running F09 replay, service health and stream counters](docs/assets/fleet-operator-panel.png)
 
-*A real 40-minute fixed-wing research flight, served from ClickHouse: GPS route,
-altitude, ground speed and the battery draining from 100% to empty.*
+*During replay of the public F09 flight, Overview shows how many messages the
+gateway has published, how many inputs reached the archive and how many
+positions are already visible in ClickHouse.*
 
 ## How it works
 
@@ -80,6 +81,31 @@ The [roadmap](docs/roadmap.md) has the current state and the order of work.
 
 ## Run it
 
+### Start a fleet replay on Windows
+
+**First-time setup.** From the repository root, run `uv sync --locked --python 3.13 --extra ulog`
+with uv 0.11.19 to create the `.venv` used by the launcher. The full fleet
+profile also needs Docker Desktop with 12 GiB and 8 CPUs, the local runtime
+images, the prepared Linux worker packages and the Grafana ClickHouse plugin.
+Bring a local PX4 `.ulg` recording. See the [image prerequisites](docs/guides/f09-single-machine-run.md#prerequisites)
+and [live-profile dependencies](docs/guides/live-sitl-recording-run.md#what-it-needs).
+
+1. Start Docker Desktop. In File Explorer, double-click **Fleet Panel.cmd**
+   at the repository root and leave its console window open. The browser opens
+   the [local operator panel](http://127.0.0.1:18765/).
+2. Click **Start session** and wait for **Running**. Under **Recording library**,
+   select **Add to session** beside a recording. Use **Choose ULog** for another
+   local file. Each added recording appears as a virtual vehicle.
+3. On **Overview**, check the vehicles, service health and running Flink jobs.
+   Open **Grafana** to see their tracks and telemetry. The panel signs you in
+   automatically as a viewer.
+4. To finish, click **Complete**, wait for completion, then **Verify** and
+   **Stop**. To revisit a saved dashboard, open **Run history** and click
+   **Load view**. Use **Close historical view** before starting another fleet.
+
+For per-vehicle controls, early stops and troubleshooting, see the
+[fleet operator runbook](docs/guides/operations-runbook.md#fleet-operator-panel).
+
 ### Kafka and Flink on one machine
 
 You need Docker with Compose (at least 6 GiB of memory and 4 CPUs) and Python
@@ -94,15 +120,16 @@ python scripts/local.py stop    # keeps Kafka and checkpoint volumes
 Success prints `"status": "verified", "measurements": 3`. The
 [local guide](docs/local-development.md) covers ports, resources and limits.
 
-### A recorded flight or a live source, with dashboards
+### Single-recording replay from the command line
 
 The full profile (Kafka, Flink, archive, ClickHouse, Grafana) needs Docker
-with 12 GiB and 8 CPUs. One command starts, checks, stops and restores a run:
+with 12 GiB and 8 CPUs. Use the same run ID for each command:
 
 ```powershell
 .venv/Scripts/python.exe -m telemetry.ulog_inventory <file.ulg>
 .venv/Scripts/python.exe -m runtime.recording.ops start --run-id <run> --source-file <file.ulg> --rights "<licence>" --reference "<origin>"
 .venv/Scripts/python.exe -m runtime.recording.ops status --run-id <run>
+.venv/Scripts/python.exe -m runtime.recording.ops complete --run-id <run> --timeout 3600
 .venv/Scripts/python.exe -m runtime.recording.ops verify --run-id <run>
 .venv/Scripts/python.exe -m runtime.recording.ops stop --run-id <run>
 ```
@@ -119,10 +146,10 @@ synthetic fixture into canonical events and verifies the run with Python and
 
 ## Screenshots
 
-![Grafana recording detail: latest values with units, association status and age, and GPS and battery charts](docs/assets/flight-recording-detail.png)
+![Fleet panel Grafana tab showing F09's connection state, map position, altitude and battery](docs/assets/fleet-panel-grafana.png)
 
-*Every value carries its unit, how it was associated with GPS time and its
-age; unknown values stay `Unknown` instead of turning into zero.*
+*The Grafana tab during the same replay. The vehicle table identifies the
+source as a recording and shows the age of its latest receipt in seconds.*
 
 <details>
 <summary>Live view and system monitoring</summary>
