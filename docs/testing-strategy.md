@@ -10,6 +10,23 @@
 | Keep isolated PyFlink suite | Native operator, timers, partition routing and real bundled Python execution | 98 passed in 100.23 s. The 53 warnings include dependency deprecations and a cancelled Beam gRPC stream in a background thread. |
 | Keep the upstream Kafka UUID regression fixture | Independent patch-package verification | Nine of ten entries match the contribution's SHA256SUMS, including the fixture. The contribution README already differed at the source baseline. Preserve the historical manifest. |
 
+The follow-up reduced the 35 combinations in
+`test_native_integer_fields_reject_coercion_and_nonfinite_values` to 11.
+All five fields pass through the same integer validator. The test still
+checks each field with a false boolean, including the optional fields where
+false could be mistaken for a missing value. Voltage exercises all seven
+invalid representations. Field-specific bounds, rejection reasons, nullable
+fields and scaling remain separate checks.
+
+Three operator regression tests cover a foreign Flink endpoint, job identity
+before cancellation, and a different active run in the same Compose project.
+On Windows the final root run passed 725 tests with five platform skips
+in 39.38 s. It included the optional Gold SQL integration test against an
+empty disposable ClickHouse instance. Set `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1`
+for its test user to create the SELECT-only reader. The three POSIX-related modules passed all 12 cases on
+Linux in 3.64 s. Offline M4 discovered 107 cases on each OS, with seven
+skips on Windows (2.361 s) and all passing on Linux (8.549 s).
+
 Use `python -m pytest -q` in the root environment for the first group.
 The native Kafka cases need the Kafka extra. Their subprocesses import the
 SDK and exercise separate creation, restart, quarantine and policy outcomes.
@@ -39,6 +56,22 @@ docker run --rm --network none --hostname localhost --tmpfs /tmp:exec,size=3g `
   --env OPENBLAS_NUM_THREADS=1 --env OMP_NUM_THREADS=1 --entrypoint python `
   $image -m pytest -q -p no:cacheprovider runtime/pyflink
 ```
+
+### F09 operator recovery after the refactoring
+
+On 18 November 2026, run `ops-check-1811-01` exercised
+`runtime.recording.ops` through `start`, `stop`, `resume`, `complete`,
+`verify` and a final `stop` in Compose project `fleet-ops-check-1811`.
+The F09 interval was 86459069 to 326459069 native microseconds, with 4,076
+declared deliveries and 2,159 reference facts. The first stop recorded partial
+completion. Resume selected checkpoint 15 from three retained checkpoints,
+matched its restore path and reached readiness in 85.8 seconds, including a
+new fact visible in SQL.
+
+Verification found 2,194 physical rows, 2,159 distinct facts and zero conflicts.
+The 35 repeated facts began at the restored offset (2195). The original SQL
+result and the archive-only rebuild both matched the reference. The detailed
+report is local to the run in `verify-20261118T103709Z.json`.
 
 ## Recording operations and restoration, 2026-11-16
 

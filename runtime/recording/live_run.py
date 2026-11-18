@@ -366,10 +366,12 @@ def execute(args: argparse.Namespace) -> int:
     declare(args, out)
     run.log("criterion_declared")
     result: Document = {"run_id": args.run_id, "status": "failed"}
+    owns_cleanup = False
     try:
         containers = cast(dict[str, str], run.status()["containers"])
         busy = [n for n, s in containers.items() if s == "running" and "worker" in n]
         require(not busy, "workers_busy")
+        owns_cleanup = True
         run.start()
         summary = run.worker("live_initialize")
         (out / "initialize.json").write_text(json.dumps(summary, indent=1))
@@ -388,7 +390,7 @@ def execute(args: argparse.Namespace) -> int:
         )
         run.log("run_failed", category=result["error"])
     finally:
-        if not args.keep_running:
+        if owns_cleanup and not args.keep_running:
             run.docker(*run.compose, "stop", *LIVE_WORKERS, SITL, check=False)
             run.stop()
         with (out / "result.json").open("x", encoding="utf-8", newline="\n") as handle:

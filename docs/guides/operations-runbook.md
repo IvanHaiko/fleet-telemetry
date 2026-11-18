@@ -294,7 +294,7 @@ Collect **before** anything that discards history:
 - the JobManager keeps job, checkpoint and exception history in memory only;
   a JobManager restart, `resume` after a host stop or a later run's start
   loses it;
-- container logs rotate at 5 MiB × 2 files (2 MiB × 2 for the simulator); a
+- container logs rotate at 5 MiB Ã— 2 files (2 MiB Ã— 2 for the simulator); a
   container recreated by a changed configuration starts an empty log;
 - Kafka keeps committed consumer offsets for 7 days after a group becomes
   empty (`offsets.retention.minutes=10080`). The run topics themselves are
@@ -310,6 +310,22 @@ coordinate, into reports.
 
 ## Restoration after a stop or a host shutdown
 
+Runs started before Compose selected the `recording-flink` image
+([ADR-0061](../adr/0061-recording-flink-image.md)) hold checkpoints written by
+`pyflink-m3:2.2.1-local2`. Restoring those checkpoints with the new image was
+not tested. Before resuming such a run, select its original image in the
+PowerShell session:
+
+```powershell
+$env:RECORDING_FLINK_IMAGE = 'fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956'
+```
+
+Use the original Compose project for the run. New operation plans record
+its name in `ops.json`. Stop and resume check the active archive's private
+mount before operating on a reused project. After working with the old
+run, clear the override with `Remove-Item Env:RECORDING_FLINK_IMAGE`
+before starting a new run.
+
 The same commands restore a run after `ops stop` or after the host, Docker or
 the whole profile stopped without warning:
 
@@ -318,15 +334,6 @@ the whole profile stopped without warning:
 .venv/Scripts/python.exe -m runtime.recording.ops resume --run-id <run>
 .venv/Scripts/python.exe -m runtime.recording.ops status --run-id <run>
 ```
-
-Runs started before Compose selected the `recording-flink` image
-([ADR-0061](../adr/0061-recording-flink-image.md)) hold checkpoints written by
-`pyflink-m3:2.2.1-local2`. Restoring those checkpoints with the new image was
-not tested. Before resuming such a run, set `$env:RECORDING_FLINK_IMAGE` in
-that PowerShell session to the
-[rollback reference](f09-single-machine-run.md#building-the-recording-flink-candidate).
-The variable stays set for the session. Remove it with
-`Remove-Item Env:RECORDING_FLINK_IMAGE` before starting a new run.
 
 `resume` performs these steps and logs each one to `events.jsonl`:
 

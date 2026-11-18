@@ -60,6 +60,7 @@ def start(args: argparse.Namespace) -> Document:
             # `ops` treats the session as live; the gateway admits players.
             "source": "live",
             "fleet": True,
+            "compose_project": PROJECT,
             "profiles": list(PROFILES),
             "declared_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "code_revision": git("rev-parse", "HEAD").strip(),

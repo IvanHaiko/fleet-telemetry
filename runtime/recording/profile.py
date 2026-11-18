@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +44,25 @@ def worker_json(text: str) -> Document:
     """Parse the last JSON document a worker module printed."""
     start = text.rfind("\n{")
     return cast(Document, json.loads(text[start + 1 :] if start >= 0 else text))
+
+
+def cancel_local_job(job: str, expected_name: str) -> None:
+    """Run inside the selected JobManager, including when the host port changes."""
+    require(re.fullmatch(r"[0-9a-f]{32}", job), "invalid_job_id")
+    url = f"http://127.0.0.1:8081/jobs/{job}"
+    try:
+        with urlopen(url, timeout=10) as response:
+            detail = json.load(response)
+        require(
+            detail.get("jid") == job and detail.get("name") == expected_name,
+            "job_scope_mismatch",
+        )
+        if detail.get("state") == "RUNNING":
+            with urlopen(Request(url + "?mode=cancel", method="PATCH"), timeout=10):
+                pass
+    except HTTPError as error:
+        if error.code != 404:
+            raise
 
 
 @dataclass
@@ -75,6 +94,38 @@ class Profile:
     @staticmethod
     def container(service: str) -> str:
         return f"{PROJECT}-{service}-1"
+
+    def owns_mount(self, container: str, destination: str, filename: str) -> bool:
+        mounts = cast(list[Document], self.inspect(container)["Mounts"])
+        return any(
+            mount["Destination"] == destination
+            and Path(str(mount["Source"])).as_posix().endswith("/" + filename)
+            for mount in mounts
+        )
+
+    def require_active_scope(self) -> None:
+        """A reused Compose project may currently serve a different run."""
+        archive = self.docker(*self.compose, "ps", "-q", "archive").strip()
+        if archive:
+            require(
+                self.owns_mount(
+                    archive, "/run/secrets/s3.json", self.private.name + "/s3.json"
+                ),
+                "active_run_mismatch",
+            )
+
+    def observers(self, *, include_stopped: bool = False) -> list[str]:
+        names = self.docker(
+            "ps",
+            *(["-a"] if include_stopped else []),
+            "--format",
+            "{{.Names}}",
+            "--filter",
+            f"name=f09-observer-{self.run_id}",
+            "--filter",
+            f"volume={PROJECT}_evidence",
+        ).split()
+        return [name for name in names if self.owns_mount(name, "/out", self.out.name)]
 
     def log(self, event: str, **data: object) -> None:
         row = {"host_ms": time.time_ns() // 1_000_000, "event": event, **data}
@@ -290,14 +341,35 @@ class Profile:
         containers = dict(line.split("\t", 1) for line in rows.splitlines() if line)
         return {"containers": containers, "jobs": jobs}
 
+    def cancel_job(self, job: str) -> None:
+        """Cancel the named run's exact job inside this project's JobManager."""
+        self.docker(
+            *self.compose,
+            "exec",
+            "-T",
+            "jobmanager",
+            "python",
+            "-c",
+            "import sys; from runtime.recording.profile import cancel_local_job; "
+            "cancel_local_job(sys.argv[1], sys.argv[2])",
+            job,
+            "bounded-recording-" + self.run_id,
+        )
+
     def stop(self) -> None:
         """Cancel this run's job and stop the containers; every volume is kept."""
+        self.require_active_scope()
         try:
-            for job in self.jobs():
-                if job.get("state") == "RUNNING":
-                    self.rest(f"/jobs/{job['jid']}?mode=cancel", "PATCH")
+            binding = self.docker(
+                *self.compose, "port", "jobmanager", "8081", check=False
+            ).strip()
+            if binding == REST.removeprefix("http://"):
+                for job in self.jobs():
+                    if job.get("state") == "RUNNING":
+                        self.cancel_job(str(job["jid"]))
         except (URLError, OSError, ValueError):
             pass
-        self.docker("stop", self.observer, check=False)
+        for observer in self.observers():
+            self.docker("stop", observer, check=False)
         self.docker(*self.compose, "stop", timeout=600)
         self.log("profile_stopped")

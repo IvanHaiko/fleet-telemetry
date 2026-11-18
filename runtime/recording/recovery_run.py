@@ -107,6 +107,7 @@ def declare(args: argparse.Namespace, out: Path) -> None:
 
 def host_stop(run: Profile, source: str) -> Document:
     """Stop every service at once without cancelling the job."""
+    run.require_active_scope()
     latest: Document | None = None
     jobs = [j for j in run.jobs() if j.get("state") == "RUNNING"]
     if len(jobs) == 1:
@@ -118,10 +119,8 @@ def host_stop(run: Profile, source: str) -> Document:
     services = run.docker(*run.compose, "config", "--services").split()
     kept = {"px4-sitl"} if source == "live" else set()
     stopped = [s for s in services if s not in kept]
-    observers = run.docker(
-        "ps", "-q", "--filter", f"name=f09-observer-{run.run_id}"
-    ).split()
-    run.docker("stop", *observers, check=False)
+    for observer in run.observers():
+        run.docker("stop", observer, check=False)
     run.docker(*run.compose, "stop", *stopped, timeout=600)
     row: Document = {
         "stop_clock_ms": clock,

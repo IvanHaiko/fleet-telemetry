@@ -34,6 +34,7 @@ PRODUCTION = [
     "runtime/clickhouse/transport.py",
     "scripts/slice_queries.py",
     "scripts/slice_run.py",
+    "scripts/slice_trace.py",
     "scripts/replay-slice.py",
     "scripts/check-m4.py",
 ]

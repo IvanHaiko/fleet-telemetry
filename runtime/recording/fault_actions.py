@@ -103,7 +103,7 @@ def job_resubmit(run: Profile, fault: Fault) -> Document:
     """Cancel the job, then submit a new one from its retained checkpoint."""
     job = run.running_job()
     start = run.clock()
-    run.rest(f"/jobs/{job}?mode=cancel", "PATCH")
+    run.cancel_job(job)
     run.wait(
         lambda: run.rest(f"/jobs/{job}").get("state") == "CANCELED",
         120,
