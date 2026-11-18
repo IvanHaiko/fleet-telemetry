@@ -11,12 +11,18 @@ fail; otherwise a stopped run could look ready.
 """
 
 import hashlib
+import io
+import json
 import os
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
+
+import pytest
 
 from runtime.continuous.recording_status import checkpoints, inventory
 from runtime.recording.ops_view import evaluate
+from runtime.recording.profile import Profile, RunFailure, cancel_local_job
 
 RUN = "f09-ops-test-01"
 
@@ -122,3 +128,52 @@ def test_unmeasured_values_never_pass_and_stalled_traffic_fails() -> None:
     moving = evaluate(before, snapshot(inside=None, input_end=20), "f09", 15)
     assert moving["input_advancing"] is True
     assert moving["fact_after_resume_visible"] is None  # no max offset measured
+
+
+def test_stop_with_foreign_rest_port_skips_flink(tmp_path: Path) -> None:
+    run = Profile(RUN, tmp_path, tmp_path)
+    with (
+        patch.object(run, "docker", return_value="") as docker,
+        patch.object(run, "jobs", side_effect=AssertionError("foreign REST port")),
+    ):
+        run.stop()
+    assert docker.call_args.args == (*run.compose, "stop")
+
+
+def test_cancel_checks_run_and_job_before_patch() -> None:
+    job = "a" * 32
+    url = f"http://127.0.0.1:8081/jobs/{job}"
+    name = "bounded-recording-" + RUN
+    for jid, owner in ((job, "other"), ("b" * 32, name), (job, name)):
+        detail = io.BytesIO(
+            json.dumps({"jid": jid, "name": owner, "state": "RUNNING"}).encode()
+        )
+        with patch(
+            "runtime.recording.profile.urlopen", side_effect=[detail, io.BytesIO()]
+        ) as request:
+            if (jid, owner) == (job, name):
+                cancel_local_job(job, name)
+                mutation = request.call_args.args[0]
+                assert mutation.full_url == url + "?mode=cancel"
+                assert mutation.get_method() == "PATCH"
+            else:
+                with pytest.raises(RunFailure, match="job_scope_mismatch"):
+                    cancel_local_job(job, name)
+                request.assert_called_once_with(url, timeout=10)
+
+
+def test_stop_refuses_another_active_run_in_same_project(tmp_path: Path) -> None:
+    run = Profile(RUN, tmp_path / RUN, tmp_path / ("recording-private-" + RUN))
+    mounts = [
+        {
+            "Destination": "/run/secrets/s3.json",
+            "Source": "/data/recording-private-other/s3.json",
+        }
+    ]
+    with (
+        patch.object(run, "docker", return_value="archive-id") as docker,
+        patch.object(run, "inspect", return_value={"Mounts": mounts}),
+        pytest.raises(RunFailure, match="active_run_mismatch"),
+    ):
+        run.stop()
+    docker.assert_called_once_with(*run.compose, "ps", "-q", "archive")

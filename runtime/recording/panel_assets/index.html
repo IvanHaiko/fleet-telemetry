@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="panel-token" content="__PANEL_TOKEN__"><title>Fleet Telemetry · Operator console</title>
+<link rel="stylesheet" href="/panel.css"><script defer src="/services.js"></script><script defer src="/panel.js"></script></head>
+<body><header><div class="wrap mast"><strong class="brand"><span class="mark">≋</span> Fleet Telemetry</strong><span class="local">Local console</span></div></header>
+<main class="wrap"><nav class="pages" aria-label="Console pages"><button id="console-page" aria-pressed="true">Overview</button><button id="dashboard-page" aria-pressed="false">Grafana</button></nav><div id="overview"><section class="session"><div><h1>Fleet session</h1><p><span id="phase" class="badge">Connecting</span> <code id="run"></code></p></div>
+<div class="actions"><button data-action="start" class="primary">Start session</button><button data-action="complete">Complete</button><button data-action="verify">Verify</button><button data-action="stop">Stop</button><button data-action="close" hidden>Close historical view</button></div></section>
+<p id="feedback" role="status"></p>
+<section class="surface"><div class="heading"><h2>Service health</h2><span id="health-age">Checking…</span></div><div id="health-grid"></div></section>
+<section class="surface"><div class="heading"><h2>Stream monitor</h2><span id="sample">Waiting for sample</span></div>
+<div class="metrics"><div><span>Gateway published</span><strong id="ack">—</strong></div><div><span>Inputs archived</span><strong id="archived">—</strong></div><div><span>SQL-visible positions</span><strong id="visible">—</strong></div></div></section>
+<section class="surface"><div class="heading"><h2>Vehicles in session</h2><a id="grafana" href="http://127.0.0.1:13003/d/fleet-live" target="_blank" rel="noopener">Fleet dashboard ↗</a></div><div class="scroll"><table><thead><tr><th>Recording</th><th>Player</th><th>Sent / total</th><th>Last heartbeat</th><th>Controls</th></tr></thead><tbody id="vehicles"></tbody></table></div></section>
+<section class="surface"><div class="heading"><h2>Recording library</h2><button data-action="browse">＋ Choose ULog</button></div><div class="scroll"><table><thead><tr><th>Source file</th><th>Duration</th><th>Available data</th><th>Actions</th></tr></thead><tbody id="sources"></tbody></table></div></section>
+<details class="surface"><summary>Run history</summary><div class="scroll"><table><thead><tr><th>Run</th><th>Source</th><th>Created (UTC)</th><th>Verification</th><th>Dashboard</th></tr></thead><tbody id="history"></tbody></table></div></details>
+</div><section class="surface" id="dashboard" hidden><div class="heading"><h2>Grafana</h2><button id="retry-login" hidden>Retry sign-in</button></div><p id="dashboard-status" role="status"></p><iframe hidden id="dashboard-frame" title="Grafana dashboard" referrerpolicy="no-referrer"></iframe></section></main></body></html>

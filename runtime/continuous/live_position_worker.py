@@ -105,114 +105,123 @@ class Mavutil(Protocol):
     def mavlink_connection(self, address: str) -> Connection: ...
 
 
-def run(config: Path, stage: str) -> dict[str, object]:
-    plan = json_object(config.read_bytes())
-    root = Path(string_value(plan["evidence"]))
-    require_uuid_boundary()
-    sdk = cast(ProducerSDK, importlib.import_module("confluent_kafka"))
-    module = cast(TopicModule, importlib.import_module("confluent_kafka.admin"))
-    admin = module.AdminClient({"bootstrap.servers": "127.0.0.1:19092"})
-    cluster = cast(Cluster, admin.describe_cluster(request_timeout=5).result(6))
-    if cluster.cluster_id != plan["cluster_id"] or len(cluster.nodes) != 1:
-        raise ValueError("position_cluster_identity")
-    topics = [string_value(plan["input_topic"]), string_value(plan["output_topic"])]
-    if stage == "initialize":
-        for topic in topics:
-            new = module.NewTopic(
-                topic,
-                num_partitions=1,
-                replication_factor=1,
-                config={
-                    "cleanup.policy": "delete",
-                    "retention.ms": "3600000",
-                    "retention.bytes": "67108864",
-                },
-            )
-            admin.create_topics([new], request_timeout=5)[topic].result(6)
-        created_sources = []
-        for topic in topics:
-            # CreateTopics acknowledgement can precede DescribeTopics visibility.
-            deadline = time.monotonic() + 15
-            while True:
-                try:
-                    metadata = cast(
-                        Topic,
-                        admin.describe_topics(
-                            sdk.TopicCollection([topic]), request_timeout=5
-                        )[topic].result(6),
-                    )
-                    break
-                except sdk.KafkaException as error:
-                    cause = cast(KafkaError, error.args[0])
-                    if cause.code() != 3 or time.monotonic() >= deadline:
-                        raise
-                    time.sleep(0.2)
-            if len(metadata.partitions) != 1 or metadata.partitions[0].id != 0:
-                raise ValueError("position_topic_partitions")
-            created_sources.append(
-                {
-                    "cluster_id": cluster.cluster_id,
-                    "topic_id": str(metadata.topic_id),
-                    "topic": topic,
-                    "partition": 0,
-                }
-            )
-        result: dict[str, object] = {
-            "input": created_sources[0],
-            "output": created_sources[1],
-        }
-        with (root / "sources.json").open("xb") as handle:
-            handle.write(json_line(result))
-        return result
-    sources = json_object((root / "sources.json").read_bytes())
-
-    def reader(which: str, suffix: str) -> NativeSliceClient:
-        source = object_value(sources[which])
-        group = "m4-reader-" + string_value(plan["run_id"]) + "-" + suffix
-        consumer = sdk.Consumer(
+def initialize_topics(
+    root: Path,
+    topics: list[str],
+    sdk: ProducerSDK,
+    module: TopicModule,
+    admin: TopicAdmin,
+    cluster: Cluster,
+) -> dict[str, object]:
+    for topic in topics:
+        new = module.NewTopic(
+            topic,
+            num_partitions=1,
+            replication_factor=1,
+            config={
+                "cleanup.policy": "delete",
+                "retention.ms": "3600000",
+                "retention.bytes": "67108864",
+            },
+        )
+        admin.create_topics([new], request_timeout=5)[topic].result(6)
+    created_sources = []
+    for topic in topics:
+        # CreateTopics acknowledgement can precede DescribeTopics visibility.
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                metadata = cast(
+                    Topic,
+                    admin.describe_topics(
+                        sdk.TopicCollection([topic]), request_timeout=5
+                    )[topic].result(6),
+                )
+                break
+            except sdk.KafkaException as error:
+                cause = cast(KafkaError, error.args[0])
+                if cause.code() != 3 or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.2)
+        if len(metadata.partitions) != 1 or metadata.partitions[0].id != 0:
+            raise ValueError("position_topic_partitions")
+        created_sources.append(
             {
-                "bootstrap.servers": "127.0.0.1:19092",
-                "group.id": group,
-                "enable.auto.commit": False,
-                "enable.auto.offset.store": False,
-                "auto.offset.reset": "error",
+                "cluster_id": cluster.cluster_id,
+                "topic_id": str(metadata.topic_id),
+                "topic": topic,
+                "partition": 0,
             }
         )
-        try:
-            position = sdk.TopicPartition(string_value(source["topic"]), 0, 0)
-            existing = consumer.committed([position], timeout=5)
-            if len(existing) != 1 or existing[0].offset not in (-1001, 0):
-                raise ValueError("position_reader_progress")
-            if existing[0].offset < 0:
-                consumer.commit(offsets=[position], asynchronous=False)
-        finally:
-            consumer.close()
-        return NativeSliceClient("127.0.0.1:19092", group, source)
+    result: dict[str, object] = {
+        "input": created_sources[0],
+        "output": created_sources[1],
+    }
+    with (root / "sources.json").open("xb") as handle:
+        handle.write(json_line(result))
+    return result
 
-    if stage == "read":
-        result = {}
-        for which in ("input", "output"):
-            client = reader(which, which)
-            try:
-                info = client.inspect(5)
-                end = (
-                    integer_value(plan["deliveries"]) if which == "input" else info.high
-                )
-                if not integer_value(plan["deliveries"]) <= end <= 32:
-                    raise ValueError("position_source_count")
-                rows = read_slice(client, object_value(sources[which]), 0, end)
-                body = b"".join(
-                    encode_observations(rows[i : i + 16])
-                    for i in range(0, len(rows), 16)
-                )
-                with (root / (which + "-observations.jsonl")).open("xb") as handle:
-                    handle.write(body)
-                result[which] = len(rows)
-            finally:
-                client.close()
-        return result
-    if stage != "capture":
-        raise ValueError("position_worker_stage")
+
+def open_reader(
+    sdk: ProducerSDK,
+    sources: dict[str, object],
+    plan: dict[str, object],
+    which: str,
+    suffix: str,
+) -> NativeSliceClient:
+    source = object_value(sources[which])
+    group = "m4-reader-" + string_value(plan["run_id"]) + "-" + suffix
+    consumer = sdk.Consumer(
+        {
+            "bootstrap.servers": "127.0.0.1:19092",
+            "group.id": group,
+            "enable.auto.commit": False,
+            "enable.auto.offset.store": False,
+            "auto.offset.reset": "error",
+        }
+    )
+    try:
+        position = sdk.TopicPartition(string_value(source["topic"]), 0, 0)
+        existing = consumer.committed([position], timeout=5)
+        if len(existing) != 1 or existing[0].offset not in (-1001, 0):
+            raise ValueError("position_reader_progress")
+        if existing[0].offset < 0:
+            consumer.commit(offsets=[position], asynchronous=False)
+    finally:
+        consumer.close()
+    return NativeSliceClient("127.0.0.1:19092", group, source)
+
+
+def read_observations(
+    root: Path, sdk: ProducerSDK, sources: dict[str, object], plan: dict[str, object]
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for which in ("input", "output"):
+        client = open_reader(sdk, sources, plan, which, which)
+        try:
+            info = client.inspect(5)
+            end = integer_value(plan["deliveries"]) if which == "input" else info.high
+            if not integer_value(plan["deliveries"]) <= end <= 32:
+                raise ValueError("position_source_count")
+            rows = read_slice(client, object_value(sources[which]), 0, end)
+            body = b"".join(
+                encode_observations(rows[i : i + 16]) for i in range(0, len(rows), 16)
+            )
+            with (root / (which + "-observations.jsonl")).open("xb") as handle:
+                handle.write(body)
+            result[which] = len(rows)
+        finally:
+            client.close()
+    return result
+
+
+def capture(
+    root: Path,
+    sdk: ProducerSDK,
+    sources: dict[str, object],
+    plan: dict[str, object],
+    input_topic: str,
+) -> dict[str, object]:
     mavutil = cast(Mavutil, importlib.import_module("pymavlink.mavutil"))
     connection = mavutil.mavlink_connection("udpin:0.0.0.0:14561")
     system, component = (
@@ -238,7 +247,6 @@ def run(config: Path, stage: str) -> dict[str, object]:
     )
     acknowledgements: list[dict[str, object]] = []
     failures: list[str] = []
-    source_topic = topics[0]
 
     def acknowledged(error: object, supplied: object) -> None:
         if error is not None:
@@ -256,7 +264,7 @@ def run(config: Path, stage: str) -> dict[str, object]:
     def publish(body: bytes) -> None:
         event = json_object(body)
         producer.produce(
-            source_topic,
+            input_topic,
             partition=0,
             key=string_value(event["event_id"]).encode(),
             value=body,
@@ -265,7 +273,7 @@ def run(config: Path, stage: str) -> dict[str, object]:
         if producer.flush(10) or failures:
             raise ValueError("position_producer_unconfirmed")
 
-    observer = reader("output", "observe")
+    observer = open_reader(sdk, sources, plan, "output", "observe")
     bodies: list[bytes] = []
     last_boot = -1000
     fix_wire: bytes | None = None
@@ -338,7 +346,7 @@ def run(config: Path, stage: str) -> dict[str, object]:
         for body in bodies[:2]:
             publish(body)
         if acknowledgements != [
-            {"topic": source_topic, "partition": 0, "offset": i} for i in range(18)
+            {"topic": input_topic, "partition": 0, "offset": i} for i in range(18)
         ]:
             raise ValueError("position_acknowledgement_coverage")
         result = {
@@ -355,6 +363,28 @@ def run(config: Path, stage: str) -> dict[str, object]:
     finally:
         connection.close()
         observer.close()
+
+
+def run(config: Path, stage: str) -> dict[str, object]:
+    plan = json_object(config.read_bytes())
+    root = Path(string_value(plan["evidence"]))
+    require_uuid_boundary()
+    sdk = cast(ProducerSDK, importlib.import_module("confluent_kafka"))
+    module = cast(TopicModule, importlib.import_module("confluent_kafka.admin"))
+    admin = module.AdminClient({"bootstrap.servers": "127.0.0.1:19092"})
+    cluster = cast(Cluster, admin.describe_cluster(request_timeout=5).result(6))
+    if cluster.cluster_id != plan["cluster_id"] or len(cluster.nodes) != 1:
+        raise ValueError("position_cluster_identity")
+    topics = [string_value(plan["input_topic"]), string_value(plan["output_topic"])]
+    if stage == "initialize":
+        return initialize_topics(root, topics, sdk, module, admin, cluster)
+    sources = json_object((root / "sources.json").read_bytes())
+
+    if stage == "read":
+        return read_observations(root, sdk, sources, plan)
+    if stage != "capture":
+        raise ValueError("position_worker_stage")
+    return capture(root, sdk, sources, plan, topics[0])
 
 
 if __name__ == "__main__":

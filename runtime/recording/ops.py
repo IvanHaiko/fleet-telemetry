@@ -71,6 +71,7 @@ def load(run_id: str, suffix: str = "") -> tuple[Profile, Document]:
     out, private = scope(run_id)
     require((out / "ops.json").exists(), "not_an_ops_run")
     plan = cast(Document, json.loads((out / "ops.json").read_text()))
+    require(plan.get("compose_project", PROJECT) == PROJECT, "compose_project_mismatch")
     profiles = tuple(cast(list[str], plan["profiles"]))
     return Profile(
         run_id, out, private, profiles=profiles, observer_suffix=suffix
@@ -121,6 +122,7 @@ def start(args: argparse.Namespace) -> Document:
     declared: Document = {
         "run_id": args.run_id,
         "source": args.source,
+        "compose_project": PROJECT,
         "profiles": list(run.profiles),
         "declared_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "code_revision": git("rev-parse", "HEAD").strip(),
@@ -229,10 +231,12 @@ def restore_job(run: Profile) -> Document:
 def resume(args: argparse.Namespace) -> Document:
     count = len(list(scope(args.run_id)[0].glob("observe*.jsonl")))
     run, plan = load(args.run_id, suffix=f"-r{count}")
+    run.require_active_scope()
     live = plan["source"] == "live"
     begin = time.time_ns() // 1_000_000
     run.log("resume_started")
-    run.docker("rm", "-f", run.observer, check=False)
+    if run.observer in run.observers(include_stopped=True):
+        run.docker("rm", "-f", run.observer)
     run.start()
     run.docker(*run.compose, "up", "-d", "grafana")
     job = restore_job(run)
@@ -344,17 +348,13 @@ def signal_table(health: Document) -> str:
 
 def stop_run(run: Profile, plan: Document | None = None) -> Document:
     """Collect evidence, then stop without removing any data."""
+    run.require_active_scope()
     if plan is None:
         plan = cast(Document, json.loads((run.out / "ops.json").read_text()))
     previous, current = two_snapshots(run)
     collected = collect(
         run, "stop", current, health_of(run, plan, current, previous, WHY_WINDOW_S)
     )
-    observers = run.docker(
-        *("ps", "-q", "--filter", f"name=f09-observer-{run.run_id}")
-    ).split()
-    for container in observers:
-        run.docker("stop", container, check=False)
     run.stop()
     return collected
 

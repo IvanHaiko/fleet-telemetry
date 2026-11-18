@@ -6,6 +6,7 @@ the tables/users. All commands are bounded; existing evidence is never replaced.
 """
 
 import argparse
+import base64
 import json
 import re
 import shutil
@@ -13,21 +14,20 @@ import subprocess
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
-from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
 from m3_transport import Transport
 from m3_transport_types import Record
 
-from runtime.archive_runtime.config import load_config
+from runtime.archive_runtime.config import Config, load_config
 from runtime.archive_runtime.supervisor import Supervisor
 from runtime.clickhouse.transport import HttpConfig, HttpReader, HttpWriter
 from runtime.kafka_archive.commit import NativeCommitter
 from runtime.s3.archive_store import make_archive_store
 from scripts.slice_measurement import SliceMeasurement
 from scripts.slice_queries import insert, reconcile
-from scripts.slice_run import exact6
+from scripts.slice_trace import processing_rows
 from telemetry.archive_documents import digest, reference
 from telemetry.archive_graph import verify_catalog
 from telemetry.serving_projection import ServingScope, project_archive
@@ -42,7 +42,6 @@ from telemetry_reference import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKER = shutil.which("docker.exe") or shutil.which("docker") or "docker"
-METRICS = ("voltage_v", "current_a", "remaining_fraction")
 type Row = dict[str, object]
 
 
@@ -92,6 +91,211 @@ def command(
     return result.stdout
 
 
+def publish_source(
+    evidence: Path,
+    project: str,
+    run_id: str,
+    topic: str,
+    values: list[bytes],
+    events: list[Row],
+    measurement: SliceMeasurement,
+) -> Row:
+    transport = Transport(
+        lambda kind, value: save(
+            evidence, f"kafka-{kind}-{len(list(evidence.iterdir()))}.json", value
+        )
+    )
+    source = {**transport.create(topic, 1), "partition": 0}
+    for index, value in enumerate(values):
+        transport.send(
+            topic,
+            Record(0, index, index, value, str(events[index]["vehicle_id"]).encode()),
+        )
+    measurement.mark("producer_acked")
+    # Full UUID comparison with broker-owned metadata, independent of SDK spelling.
+    cli = command(
+        evidence,
+        "broker-topic.json",
+        [
+            "docker",
+            "exec",
+            project + "-kafka-1",
+            "/opt/kafka/bin/kafka-topics.sh",
+            "--bootstrap-server",
+            "kafka:9092",
+            "--describe",
+            "--topic",
+            topic,
+        ],
+    )
+    match = re.search(r"TopicId:\s*(\S+)", cli)
+    require(match is not None, "broker_uuid_missing")
+    assert match is not None
+    require(
+        base64.urlsafe_b64decode(match[1] + "==")
+        == base64.b64decode(cast(str, source["topic_id"]) + "=="),
+        "topic_uuid_mismatch",
+    )
+    save(evidence, "source.json", source)
+    # Initialize only this newly created topic/group at its proven empty origin.
+    committer = NativeCommitter("127.0.0.1:19092", "m4-reader-" + run_id, source)
+    try:
+        committer.commit(0, 10)
+    finally:
+        committer.close()
+    return source
+
+
+def run_flink(
+    evidence: Path,
+    project: str,
+    run_id: str,
+    topic: str,
+    reference_scope: ReferenceScope,
+    values: list[bytes],
+    events: list[Row],
+    measurement: SliceMeasurement,
+) -> list[Row]:
+    flink_manifest = {
+        "profile": "m3-persistent-input-v1",
+        "topic": topic,
+        "bootstrap": "kafka:9092",
+        "group": run_id + "-flink",
+        "end": len(values),
+        "scope": asdict(reference_scope),
+    }
+    save(evidence, "flink-manifest.json", flink_manifest)
+    command(
+        evidence,
+        "copy-manifest.json",
+        [
+            "docker",
+            "exec",
+            "-i",
+            project + "-jobmanager-1",
+            "sh",
+            "-c",
+            "cat > /state/input.json",
+        ],
+        input_text=json.dumps(flink_manifest),
+    )
+    command(
+        evidence,
+        "flink-command.json",
+        [
+            "docker",
+            "exec",
+            project + "-jobmanager-1",
+            "/opt/m3/entrypoint.sh",
+            "submit",
+            "-py",
+            "/workspace/runtime/pyflink/persistent_job.py",
+            "--manifest",
+            "/state/input.json",
+            "--control",
+            "/state/slice-" + run_id,
+            "--checkpoints",
+            "/state/checkpoints-" + run_id,
+            "--run-tag",
+            "initial",
+            "--identity-limit",
+            "128",
+        ],
+        180,
+    )
+    measurement.mark("flink_finished")
+    output = command(
+        evidence,
+        "flink-trace-command.json",
+        [
+            "docker",
+            "exec",
+            project + "-jobmanager-1",
+            "cat",
+            "/state/slice-" + run_id + "/trace-initial.jsonl",
+        ],
+    )
+    trace = rows(output.encode())
+    save(evidence, "flink-trace.json", trace)
+    for index, value in enumerate(values):
+        audit = obj(
+            json.loads(
+                command(
+                    evidence,
+                    f"flink-source-{index}.json",
+                    [
+                        "docker",
+                        "exec",
+                        project + "-jobmanager-1",
+                        "cat",
+                        f"/state/slice-{run_id}/source-initial-0-{index}.json",
+                    ],
+                )
+            )
+        )
+        require(
+            audit["topic"] == topic
+            and audit["partition"] == 0
+            and audit["offset"] == index
+            and audit["value_sha256"] == digest(value)[7:]
+            and audit["key_sha256"]
+            == digest(str(events[index]["vehicle_id"]).encode())[7:],
+            "flink_source_bytes_mismatch",
+        )
+    return trace
+
+
+def archive_inputs(
+    evidence: Path,
+    storage: Config,
+    run_id: str,
+    source: Row,
+    observations: int,
+    source_body: bytes,
+    job_body: bytes,
+    manifest: Row,
+) -> tuple[Row, bytes]:
+    # Existing supervised archive path remains independent of Flink and serving.
+    blobs = {}
+    lineage = []
+    for role, body in (("original_source", source_body), ("source_manifest", job_body)):
+        ref = reference(body, "source")
+        blobs[cast(str, ref["key"])] = body
+        lineage.append(
+            {
+                "role": role,
+                "object": ref,
+                "source_log_id": manifest["source_log_id"],
+                "schema_version": "1.0.0",
+                "normalization_version": "battery-v1",
+                "source_dataset_run_id": "demo-synthetic-001",
+                "privacy_classification": "synthetic",
+                "semantic_projection": "battery-semantic-v1",
+            }
+        )
+    archive_job = {
+        "archive_run_id": run_id,
+        "bucket": storage.bucket,
+        "source": source,
+        "start_offset": 0,
+        "next_offset": observations,
+        "lineage": lineage,
+        "writer_version": digest(Path(__file__).read_bytes()),
+        "verified_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "batch_size": min(16, max(2, observations // 2)),
+    }
+    scratch = evidence / "scratch"
+    scratch.mkdir()
+    roots = evidence / "roots"
+    roots.mkdir()
+    archive_result = Supervisor(storage, scratch, 120).publish(
+        archive_job, blobs, "m4-reader-" + run_id, roots, None
+    )
+    save(evidence, "archive.json", archive_result)
+    descriptor = (roots / run_id / "descriptor.json").read_bytes()
+    return archive_result, descriptor
+
+
 def run(evidence: Path, private: Path, project: str, observations: int = 4) -> None:
     require(sys.platform == "linux", "linux_profile_required")
     require(type(observations) is int and 4 <= observations <= 32, "observation_bound")
@@ -132,89 +336,12 @@ def run(evidence: Path, private: Path, project: str, observations: int = 4) -> N
         json.loads(json.dumps(asdict(reference_result), default=str)),
     )
     topic = f"m2.m3-final-{run_id}.telemetry.canonical.v1"
-    transport = Transport(
-        lambda kind, value: save(
-            evidence, f"kafka-{kind}-{len(list(evidence.iterdir()))}.json", value
-        )
+    source = publish_source(
+        evidence, project, run_id, topic, values, events, measurement
     )
-    source = {**transport.create(topic, 1), "partition": 0}
-    for index, value in enumerate(values):
-        transport.send(
-            topic,
-            Record(0, index, index, value, str(events[index]["vehicle_id"]).encode()),
-        )
-    measurement.mark("producer_acked")
-    # Full UUID comparison with broker-owned metadata, independent of SDK spelling.
-    cli = command(
-        evidence,
-        "broker-topic.json",
-        [
-            "docker",
-            "exec",
-            project + "-kafka-1",
-            "/opt/kafka/bin/kafka-topics.sh",
-            "--bootstrap-server",
-            "kafka:9092",
-            "--describe",
-            "--topic",
-            topic,
-        ],
+    archive_result, descriptor = archive_inputs(
+        evidence, storage, run_id, source, observations, source_body, job_body, manifest
     )
-    import base64
-
-    match = re.search(r"TopicId:\s*(\S+)", cli)
-    require(match is not None, "broker_uuid_missing")
-    assert match is not None
-    require(
-        base64.urlsafe_b64decode(match[1] + "==")
-        == base64.b64decode(cast(str, source["topic_id"]) + "=="),
-        "topic_uuid_mismatch",
-    )
-    save(evidence, "source.json", source)
-    # Initialize only this newly created topic/group at its proven empty origin.
-    committer = NativeCommitter("127.0.0.1:19092", "m4-reader-" + run_id, source)
-    try:
-        committer.commit(0, 10)
-    finally:
-        committer.close()
-    # Existing supervised archive path remains independent of Flink and serving.
-    blobs = {}
-    lineage = []
-    for role, body in (("original_source", source_body), ("source_manifest", job_body)):
-        ref = reference(body, "source")
-        blobs[cast(str, ref["key"])] = body
-        lineage.append(
-            {
-                "role": role,
-                "object": ref,
-                "source_log_id": manifest["source_log_id"],
-                "schema_version": "1.0.0",
-                "normalization_version": "battery-v1",
-                "source_dataset_run_id": "demo-synthetic-001",
-                "privacy_classification": "synthetic",
-                "semantic_projection": "battery-semantic-v1",
-            }
-        )
-    archive_job = {
-        "archive_run_id": run_id,
-        "bucket": storage.bucket,
-        "source": source,
-        "start_offset": 0,
-        "next_offset": observations,
-        "lineage": lineage,
-        "writer_version": digest(Path(__file__).read_bytes()),
-        "verified_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-        "batch_size": min(16, max(2, observations // 2)),
-    }
-    scratch = evidence / "scratch"
-    scratch.mkdir()
-    roots = evidence / "roots"
-    roots.mkdir()
-    archive_result = Supervisor(storage, scratch, 120).publish(
-        archive_job, blobs, "m4-reader-" + run_id, roots, None
-    )
-    save(evidence, "archive.json", archive_result)
-    descriptor = (roots / run_id / "descriptor.json").read_bytes()
     sha = digest(descriptor)
     store = make_archive_store(
         storage.endpoint,
@@ -237,171 +364,17 @@ def run(evidence: Path, private: Path, project: str, observations: int = 4) -> N
             "archive_identities_mismatch",
         )
         measurement.mark("archive_graph_verified")
-        flink_manifest = {
-            "profile": "m3-persistent-input-v1",
-            "topic": topic,
-            "bootstrap": "kafka:9092",
-            "group": run_id + "-flink",
-            "end": observations,
-            "scope": asdict(reference_scope),
-        }
-        save(evidence, "flink-manifest.json", flink_manifest)
-        command(
+        trace = run_flink(
             evidence,
-            "copy-manifest.json",
-            [
-                "docker",
-                "exec",
-                "-i",
-                project + "-jobmanager-1",
-                "sh",
-                "-c",
-                "cat > /state/input.json",
-            ],
-            input_text=json.dumps(flink_manifest),
+            project,
+            run_id,
+            topic,
+            reference_scope,
+            values,
+            events,
+            measurement,
         )
-        command(
-            evidence,
-            "flink-command.json",
-            [
-                "docker",
-                "exec",
-                project + "-jobmanager-1",
-                "/opt/m3/entrypoint.sh",
-                "submit",
-                "-py",
-                "/workspace/runtime/pyflink/persistent_job.py",
-                "--manifest",
-                "/state/input.json",
-                "--control",
-                "/state/slice-" + run_id,
-                "--checkpoints",
-                "/state/checkpoints-" + run_id,
-                "--run-tag",
-                "initial",
-                "--identity-limit",
-                "128",
-            ],
-            180,
-        )
-        measurement.mark("flink_finished")
-        output = command(
-            evidence,
-            "flink-trace-command.json",
-            [
-                "docker",
-                "exec",
-                project + "-jobmanager-1",
-                "cat",
-                "/state/slice-" + run_id + "/trace-initial.jsonl",
-            ],
-        )
-        trace = rows(output.encode())
-        save(evidence, "flink-trace.json", trace)
-        for index, value in enumerate(values):
-            audit = obj(
-                json.loads(
-                    command(
-                        evidence,
-                        f"flink-source-{index}.json",
-                        [
-                            "docker",
-                            "exec",
-                            project + "-jobmanager-1",
-                            "cat",
-                            f"/state/slice-{run_id}/source-initial-0-{index}.json",
-                        ],
-                    )
-                )
-            )
-            require(
-                audit["topic"] == topic
-                and audit["partition"] == 0
-                and audit["offset"] == index
-                and audit["value_sha256"] == digest(value)[7:]
-                and audit["key_sha256"]
-                == digest(str(events[index]["vehicle_id"]).encode())[7:],
-                "flink_source_bytes_mismatch",
-            )
-        dispositions = [row for row in trace if row["kind"] == "disposition"]
-        require(
-            [
-                (row["observation_index"], row["disposition"], row["event_id"])
-                for row in dispositions
-            ]
-            == [
-                (d.observation_index, d.kind, d.event_id)
-                for d in reference_result.dispositions
-            ],
-            "flink_dispositions_mismatch",
-        )
-        raw_windows = [row for row in trace if row["kind"] == "window"]
-        require(len(raw_windows) == len(reference_result.windows) == 1, "window_count")
-        expected_window = reference_result.windows[0]
-        actual_window = raw_windows[0]
-        for field in (
-            "dataset_run_id",
-            "pipeline_version",
-            "vehicle_id",
-            "start_ms",
-            "end_ms",
-            "unique_events",
-        ):
-            require(
-                actual_window[field] == getattr(expected_window, field),
-                "window_mismatch",
-            )
-        windows: list[Row] = []
-        for metric, summary in zip(
-            METRICS,
-            (
-                expected_window.voltage,
-                expected_window.current,
-                expected_window.remaining,
-            ),
-            strict=True,
-        ):
-            measure = cast(list[object], obj(actual_window["measures"])[metric])
-            require(
-                measure[0] == summary.count
-                and Fraction(cast(str, measure[1])) == (summary.total or Fraction(0)),
-                "window_sum_mismatch",
-            )
-            # The tiny fixture is exactly representable; refuse rounding elsewhere.
-            total = Fraction(cast(str, measure[1]))
-            value_sum = exact6(total)
-            windows.append(
-                {
-                    "dataset_run_id": scope.dataset_run_id,
-                    "pipeline_version": scope.pipeline_version,
-                    "vehicle_id": actual_window["vehicle_id"],
-                    "start_ms": actual_window["start_ms"],
-                    "end_ms": actual_window["end_ms"],
-                    "metric": metric,
-                    "unique_events": actual_window["unique_events"],
-                    "valid_count": measure[0],
-                    "value_sum": value_sum,
-                    "archive_descriptor_sha256": sha,
-                }
-            )
-        facts = [
-            {
-                "dataset_run_id": scope.dataset_run_id,
-                "pipeline_version": scope.pipeline_version,
-                **{
-                    key: row[key]
-                    for key in (
-                        "observation_index",
-                        "event_id",
-                        "disposition",
-                        "reason",
-                        "watermark_ms",
-                    )
-                },
-                "archive_descriptor_sha256": sha,
-            }
-            for row in dispositions
-        ]
+        facts, windows = processing_rows(trace, reference_result, scope, sha)
         measurement.mark("flink_facts_reconciled")
         projection = project_archive(descriptor, sha, store, scope)
 

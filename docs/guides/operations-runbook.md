@@ -294,7 +294,7 @@ Collect **before** anything that discards history:
 - the JobManager keeps job, checkpoint and exception history in memory only;
   a JobManager restart, `resume` after a host stop or a later run's start
   loses it;
-- container logs rotate at 5 MiB × 2 files (2 MiB × 2 for the simulator); a
+- container logs rotate at 5 MiB Ã— 2 files (2 MiB Ã— 2 for the simulator); a
   container recreated by a changed configuration starts an empty log;
 - Kafka keeps committed consumer offsets for 7 days after a group becomes
   empty (`offsets.retention.minutes=10080`). The run topics themselves are
@@ -310,6 +310,22 @@ coordinate, into reports.
 
 ## Restoration after a stop or a host shutdown
 
+Runs started before Compose selected the `recording-flink` image
+([ADR-0061](../adr/0061-recording-flink-image.md)) hold checkpoints written by
+`pyflink-m3:2.2.1-local2`. Restoring those checkpoints with the new image was
+not tested. Before resuming such a run, select its original image in the
+PowerShell session:
+
+```powershell
+$env:RECORDING_FLINK_IMAGE = 'fleet-telemetry/pyflink-m3:2.2.1-local2@sha256:9cd317885a161473064ad7628d807f87c688bff0d3d7335bf8e2c7b5cfd77956'
+```
+
+Use the original Compose project for the run. New operation plans record
+its name in `ops.json`. Stop and resume check the active archive's private
+mount before operating on a reused project. After working with the old
+run, clear the override with `Remove-Item Env:RECORDING_FLINK_IMAGE`
+before starting a new run.
+
 The same commands restore a run after `ops stop` or after the host, Docker or
 the whole profile stopped without warning:
 
@@ -318,15 +334,6 @@ the whole profile stopped without warning:
 .venv/Scripts/python.exe -m runtime.recording.ops resume --run-id <run>
 .venv/Scripts/python.exe -m runtime.recording.ops status --run-id <run>
 ```
-
-Runs started before Compose selected the `recording-flink` image
-([ADR-0061](../adr/0061-recording-flink-image.md)) hold checkpoints written by
-`pyflink-m3:2.2.1-local2`. Restoring those checkpoints with the new image was
-not tested. Before resuming such a run, set `$env:RECORDING_FLINK_IMAGE` in
-that PowerShell session to the
-[rollback reference](f09-single-machine-run.md#building-the-recording-flink-candidate).
-The variable stays set for the session. Remove it with
-`Remove-Item Env:RECORDING_FLINK_IMAGE` before starting a new run.
 
 `resume` performs these steps and logs each one to `events.jsonl`:
 
@@ -445,3 +452,57 @@ detail:
 - alerting between two `ops` invocations (signals are computed on demand),
   and Kafka broker metrics beyond health, offsets, partition availability
   and topic sizes.
+## Fleet operator panel
+
+With the local recording profile prepared, start Docker Desktop and double-click
+`Fleet Panel.cmd` at the repository root on Windows. Leave its console window
+open. Opening the launcher again opens the existing panel. On another host
+with the supported environment, run `python -m runtime.recording.panel --open`.
+The console listens at `http://127.0.0.1:18765` and uses the host's Docker CLI.
+It uses the existing live-profile packages and Grafana plugin. Opening the
+page alone starts no telemetry services.
+
+1. Choose **Start session**. Wait for **Running**. The panel uses Compose
+   project `fleet-panel-local`, networks `10.253.243.16/28` and
+   `10.253.243.32/28`, and the normal Grafana and Flink loopback ports.
+2. In **Recording library**, choose a registered file or **Choose ULog** to
+   select a local file. **Inspect** runs the replay planner and shows its
+   supported fields and replay duration. **Add to session** starts that virtual
+   vehicle and waits for the gateway to publish. The library stores file
+   paths locally; the source file stays in place.
+3. Add another file. Use **Pause**, **Resume** or **End** on an individual
+   vehicle. The stream counters come from the run observer: gateway messages,
+   archived inputs and distinct SQL-visible position offsets. These count
+   different things. The sample age indicates when the observer last updated.
+   **Service health** samples the selected Compose project in the background.
+   Kafka reports its topic-list health check. Flink reports running jobs and
+   registered TaskManagers from its REST overview. The S3 endpoint is probed
+   through the shared storage network namespace, ClickHouse must reply to
+   `/ping`, and Grafana checks its database. A missing probe stays unknown;
+   samples older than 30 seconds expire. Historical viewing runs only the
+   storage, SQL and Grafana services.
+
+   The dark **Grafana** tab opens the active dashboard without a floating
+   kiosk footer. The fleet map opens at world scale; zoom and pan to a vehicle
+   to keep that view while telemetry refreshes every five seconds.
+
+   On session start
+   or after loading history, the panel signs in as `fleet_panel_viewer` through
+   Grafana's auth proxy inside the selected container. The proxy trusts only
+   container loopback. The browser receives Grafana's HttpOnly Viewer cookie.
+   This mode and embedding are enabled by the panel's Compose environment.
+   Manual administrator login for maintenance is described above.
+4. Choose **Complete**, **Verify**, then **Stop** to drain, reconcile and stop.
+   **Stop** also allows an early stop with partial evidence. The run data
+   and checkpoints stay in the project volumes. Closing a browser tab does
+   not stop the session.
+5. With the fleet stopped, expand **Run history** and choose **Load view**.
+   The original project must be identifiable and stopped, with its storage
+   volumes and private settings available. Open **Historical dashboard**,
+   then use **Close historical view** to release the shared ports. A historical
+   entry can remain in the catalog after its volumes have been removed.
+
+Only one operation runs at a time. Errors appear below the session title.
+Run evidence remains in `.local-discovery/<run>/`; console settings and file
+paths are in `.local-discovery/fleet-panel.json`. The panel operates replay
+vehicles. It does not send commands to a physical vehicle.

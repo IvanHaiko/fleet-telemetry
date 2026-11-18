@@ -359,6 +359,7 @@ def execute(args: argparse.Namespace) -> int:
 
     sampler: subprocess.Popen[bytes] | None = None
     result: Document = {"run_id": args.run_id, "status": "failed"}
+    owns_cleanup = False
     try:
         containers = cast(dict[str, str], run.status()["containers"])
         busy = [n for n, s in containers.items() if s == "running" and "worker" in n]
@@ -366,6 +367,7 @@ def execute(args: argparse.Namespace) -> int:
             not busy and containers.get(run.container("publisher")) != "running",
             "workers_busy",
         )
+        owns_cleanup = True
         run.start()
         serving = next((f for f in faults if f.kind == "serving-ack-cursor"), None)
         fault_option = (
@@ -394,7 +396,7 @@ def execute(args: argparse.Namespace) -> int:
     finally:
         if sampler is not None:
             sampler.terminate()
-        if not args.keep_running:
+        if owns_cleanup and not args.keep_running:
             run.stop()
         with (out / "result.json").open("x", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(result, indent=1) + "\n")

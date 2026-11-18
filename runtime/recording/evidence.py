@@ -97,7 +97,7 @@ def containers(run: Profile) -> list[str]:
         for service in run.docker(*run.compose, "config", "--services").split()
     }
     services = [n for n in names if n in selected]
-    observers = [n for n in names if n.startswith(f"f09-observer-{run.run_id}")]
+    observers = run.observers(include_stopped=True)
     return sorted(services) + sorted(observers)
 
 

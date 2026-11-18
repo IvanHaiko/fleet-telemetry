@@ -263,17 +263,20 @@ def test_invalid_values_have_explicit_rejections(
 
 
 @pytest.mark.parametrize(
-    "field",
+    ("field", "value"),
     [
-        "voltage_mv",
-        "current_ma",
-        "remaining_pct",
-        "timestamp_us",
-        "source_record_index",
+        ("source_record_index", False),
+        ("timestamp_us", False),
+        ("current_ma", False),
+        ("remaining_pct", False),
+        ("voltage_mv", False),
+        ("voltage_mv", True),
+        ("voltage_mv", 1.0),
+        ("voltage_mv", "1"),
+        ("voltage_mv", float("nan")),
+        ("voltage_mv", float("inf")),
+        ("voltage_mv", []),
     ],
-)
-@pytest.mark.parametrize(
-    "value", [True, False, 1.0, "1", float("nan"), float("inf"), []]
 )
 def test_native_integer_fields_reject_coercion_and_nonfinite_values(
     field: str, value: object

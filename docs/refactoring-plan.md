@@ -147,9 +147,12 @@ limit. Live uses its own archive-derived gate and checks the next offset per
 partition. Preserve their poll and completion loops. The archive modules
 share the storage error type, and recording processing imports the reviewed
 state fields and values from flight analytics. Both boundaries still load
-in the supported CLI paths. The position-only worker and the M4/M5
-case-study runners remain historical; restructuring their scenario control
-flow was outside the selected production paths.
+in the supported CLI paths. The historical position worker now dispatches initialization, readback and
+capture separately. The M4 and M5 runners separate Kafka setup and Flink
+execution from trace reconciliation. Replaying the saved M4 trace reproduced
+four dispositions and three metric rows. The M5 trace reproduced 51
+dispositions, six event rows, twelve metric rows and the exact reference
+file. These checks reused retained synthetic traces.
 
 ## 4. Review the test suite and remove demonstrated redundancy
 
@@ -188,3 +191,12 @@ skips and runtime per lane. Test count is an outcome of the review.
 | Checks and their callers | `scripts/check-m4.py`, `benchmark-transport.py`, `check-m5-late.py`; `tests/test_gold_overview.py`, `test_gold_position.py` and `test_recording_stream_prepare.py` |
 | Earlier audit-branch changes | `runtime/continuous/live_worker.py`, `live_archive_gate.py`, `live_reconcile.py` and `recording_config.py`; `runtime/recording/ops.py`, `ops_view.py`, `health_signals.py` and `stall.py`; `tests/test_live_serving_gate.py`; `.github/workflows/m1.yml`, `CONTRIBUTING.md` and `docs/README.md` |
 | Evidence and decisions | This plan, `docs/architecture.md`, `docs/testing-strategy.md`, `docs/guides/f09-single-machine-run.md`, `docs/guides/operations-runbook.md` and `docs/adr/0061-recording-flink-image.md` |
+
+### Follow-up file inventory
+
+| Change | Files |
+| --- | --- |
+| Scope operator stop, restore, cancellation, observer discovery and failure cleanup | `runtime/recording/profile.py`, `ops.py`, `evidence.py`, `recovery_run.py`, `fault_actions.py`, `fault_run.py`, `live_run.py` and `fleet.py` in the same directory |
+| Separate historical scenario stages and verify the M4 trace module in the offline lane | `runtime/continuous/live_position_worker.py`, `scripts/run-slice.py`, `scripts/slice_trace.py`, `scripts/check-m4.py`, `scripts/check-m5-late.py`, `scripts/m5_late_reference.py` |
+| Check operator ownership and reduce repeated integer validation cases | `tests/test_recording_ops.py`, `tests/test_normalization.py` |
+| Record the rollback procedure, test decisions and follow-up scope | `docs/guides/operations-runbook.md`, `docs/testing-strategy.md`, this plan |
